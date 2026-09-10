@@ -2,11 +2,11 @@
 
 Every experimentally verifiable claim in the top-level README has a file here. One claim does
 not: agent governance, in section 2, is described and not shipped. That gap is named in the
-README itself rather than covered over.
+README itself.
 
-Nothing in this directory is a summary written for a reader: these are the working artefacts,
+The evidence directories hold the original artefacts wherever they can be published safely,
 copied out of the bench that produced them, with absolute paths made relative and nothing else
-changed.
+changed. The README files, this one included, exist only for navigation and context.
 
 Start here:
 
@@ -24,7 +24,7 @@ script and stated in the root README only, so it cannot drift between two docume
 | `finetune-blocked/` | The fine-tune whose score was never read, with the runs to recompute it |
 | `code/` | The regression policy as executable code, and its tests |
 | `decisions/` | Architecture decision records |
-| `declared-metrics.md` | The numbers that are declared rather than recomputed, with the command behind each |
+| `declared-metrics.md` | The declared numbers, each with the command behind it |
 | `gates/` | Four tools that refuse, with example data so the refusal can be seen |
 
 ## What is not here

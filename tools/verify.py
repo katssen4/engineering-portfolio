@@ -216,9 +216,12 @@ def verifie_recalcul() -> None:
     diag = [json.loads(l) for l in
             (art / "F1_control_diag.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     ecarts = [x for x in diag if abs(x.get("delta", 0)) > 1e-5]
+    # Nuance relevee par une revue exterieure : ceci lit le diagnostic livre, il ne le
+    # reconstruit pas depuis les donnees primitives. La metrique, elle, est bien recalculee.
     dit(len(ecarts) == 1,
-        f"the whole gap sits in {len(ecarts)} query out of {len(diag)}"
-        + (f": {ecarts[0]['qid']}, delta {ecarts[0]['delta']}" if len(ecarts) == 1 else ""))
+        f"shipped diagnostic puts the whole gap on {len(ecarts)} query out of {len(diag)}"
+        + (f": {ecarts[0]['qid']}, delta {ecarts[0]['delta']}" if len(ecarts) == 1 else "")
+        + " (read from the diagnostic, not recomputed per query)")
 
 
 def verifie_portes() -> None:
@@ -265,7 +268,7 @@ def verifie_tests() -> None:
         dit(False, "pytest is not installed. Run: pip install pytest")
         return
     for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
-                           ("evidence/gates/tests/", 23)):
+                           ("evidence/gates/tests/", 24)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
@@ -286,8 +289,6 @@ def verifie_comptes() -> None:
     """
     titre(7, "The repository counts its own checks")
     texte = README.read_text(encoding="utf-8")
-    attendu = f"{controles + 3} checks"
-    dit(attendu in texte, f"README states \"{attendu}\"")
     tests = (len(re.findall(r"^def test_", (RACINE / "evidence" / "code" /
              "test_eval_regression.py").read_text(encoding="utf-8"), re.M))
              + sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
@@ -296,6 +297,26 @@ def verifie_comptes() -> None:
     carte = (RACINE / "evidence" / "README.md").read_text(encoding="utf-8")
     dit(not re.search(r"\b\d+ checks\b", carte),
         "evidence/README.md states no check count of its own, so it cannot drift")
+
+    # Une revue exterieure a trouve un chemin cite dans un docstring et absent du depot.
+    # Les chemins internes cites en `backticks` sont donc confrontes au disque.
+    morts = []
+    for f in sorted(RACINE.rglob("*.md")) + sorted(RACINE.rglob("*.py")):
+        # Exclus : les ADR et les fichiers de `evidence/code/`, copies verbatim du banc.
+        # Ils citent leur arbre d'origine, et les retoucher effacerait leur provenance.
+        if ".git" in f.parts or "decisions" in f.parts or "code" in f.parts:
+            continue
+        for m in re.finditer(r"`((?:evidence|tools)/[A-Za-z0-9_./-]+)`",
+                             f.read_text(encoding="utf-8", errors="replace")):
+            if not (RACINE / m.group(1)).exists():
+                morts.append(f"{f.relative_to(RACINE)} cites {m.group(1)}")
+    dit(not morts, "every internal path quoted in the docs exists"
+        + (f"; dead: {morts[0]}" if morts else ""))
+
+    # En dernier, parce qu'il se compte lui-meme : l'ecart etait code en dur et derivait
+    # des qu'un controle s'ajoutait a cette section.
+    attendu = f"{controles + 1} checks"
+    dit(attendu in texte, f"README states \"{attendu}\"")
 
 
 def main() -> int:

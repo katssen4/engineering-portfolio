@@ -7,10 +7,10 @@ with a non-zero exit code, and say which control failed.
 They come from a job-search workbench I wrote for myself. The data that went through them, offers,
 letters, salary expectations, is mine and stays private. What is here is the machinery, with the
 personal parts made into parameters. Colleagues who watched it run asked for a copy, which is why
-it is in a portfolio rather than in a drawer.
+it is in a portfolio and not in a drawer.
 
 The comments are in French, the working language of the lab, while the rest of this repository is
-in English. Stated rather than translated after the fact.
+in English. Said here, not translated after the fact.
 
 ## `anti_invention.py`
 
@@ -40,7 +40,7 @@ adds, never what it removes, so deleting a whole section of caveats is invisible
 are in `tests/test_anti_invention.py` as passing tests that assert the real behaviour: improving
 the gate breaks them, which forces this paragraph to change at the same time.
 
-Within its remit it over-reports rather than under-reports. For a gate that guards facts, a false
+Within its remit it over-reports. For a gate that guards facts, a false
 alarm costs a glance and a missed invention costs credibility.
 
 ## `build_document.py`

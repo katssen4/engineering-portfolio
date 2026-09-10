@@ -1,11 +1,11 @@
 # Fait tourner tools/verify.py a chaque poussee, pour que le lecteur n'ait pas a croire
 # sur parole que le depot passe son propre controle.
 #
-# Versions epinglees des deux cotes : les actions sur leur generation Node 24 (les v4 et v5
-# emettaient un avertissement de depreciation Node 20, releve par une revue exterieure le
-# 2026-09-10), et pytest sur une version exacte via requirements-ci.txt. Un depot dont la
-# these est la reproductibilite ne fait pas tourner sa propre verification sur une
-# dependance flottante.
+# Tout est epingle par empreinte : les deux actions par SHA de commit, pytest par version
+# exacte dans requirements-ci.txt. Un tag majeur comme @v7 bouge, et une revue exterieure a
+# releve le 2026-09-10 que le commentaire de ce fichier annoncait un epinglage qu'il ne
+# faisait pas. La version de Python reste sur 3.12, ce qui laisse flotter le correctif :
+# c'est assume, la chaine n'exige rien d'un correctif precis.
 name: verify
 
 on:
@@ -17,8 +17,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - run: pip install -r requirements-ci.txt

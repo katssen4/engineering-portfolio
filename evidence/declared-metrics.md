@@ -15,10 +15,18 @@ Every command excludes vendored and generated trees: `node_modules`, `venv`, `.v
 | 284,347 lines of Python | the knowledge platform, Python only, 990 files | `git ls-files projets/ariane \| grep -E '\.py$' \| grep -vE '<exclusions>' \| tr '\n' '\0' \| xargs -0 cat \| wc -l` | 284347 | 2026-09-09 |
 | eight products, 448,866 lines | the eight applications, Python and TypeScript, 1,827 files | same command per project, summed | 448866 | 2026-09-09 |
 | 1,311 pinned hashes | the deployment lock file of the containerised platform | `grep -c 'sha256:' requirements.lock` | 1311 | 2026-09-10 |
-| 4,005 lines of deployment runbook | three deployment documents of the same platform | `wc -l README_DEPLOY.md RUNBOOK_DEPLOY.md RUNBOOK_DEPLOY_v2.md` | 55 + 695 + 3255 | 2026-09-10 |
+| 3,310 lines of deployment runbook | the deployment documents in force: the deployment README and the v2 runbook | `wc -l README_DEPLOY.md RUNBOOK_DEPLOY_v2.md` | 55 + 3255 | 2026-09-10 |
 | 149 French and 149 English articles | the published corpus of labo-llm.fr, drafts excluded | `find src/content/articles -type f \( -name '*.md' -o -name '*.mdx' \) -not -path '*/en/*' -not -path '*/prive/*' \| wc -l`, then the same for `en/` | 149 and 149 | 2026-09-09 |
 | 5,572 relevance judgements | the seven TREC judgement files of the bench | `wc -l corpus/qrels/*.trec` | 5572 | 2026-09-09 |
 | 3 banking platforms, 200,000+ lines | the provisioning platform I am technical owner of | none: this is my job, not a repository | see below | ongoing |
+
+## A figure this page carried wrong until 2026-09-10
+
+The runbook line count read **4,005** and summed three documents. That was a double count: the
+v2 runbook opens with `remplace: RUNBOOK_DEPLOY.md (S222, conservé pour traçabilité)`, so its
+695-line predecessor is superseded and kept only as history. The figure in force is 3,310, and an
+outside review caught the overlap by reading the file names. It has been corrected here, on the
+page, and on every CV that carried it.
 
 ## The one number with no command at all
 

@@ -16,9 +16,9 @@ How tied scores are handled when the metric is computed. See
 
 ## `test_eval_regression.py`
 
-34 tests. They run on a clean checkout, with no corpus and no network:
+35 tests. They run on a clean checkout, with no corpus and no network:
 
     python3 -m pytest -q evidence/code/test_eval_regression.py
 
 The bench also carries tests for `tie_policy`, but they load two bench runners that are not part of
-this repository, so they would fail here. They are left out rather than shipped broken.
+this repository, so they would fail here. They are left out, since a broken test costs more than it gives.

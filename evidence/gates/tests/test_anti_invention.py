@@ -60,6 +60,12 @@ def test_un_multiplicateur_colle_vaut_sa_valeur():
     assert cles("5M") == cles("5000000")
 
 
+def test_un_multiplicateur_en_toutes_lettres_vaut_sa_valeur():
+    """Faux positif releve en revue : « 312M » et « 312 million » donnaient deux cles."""
+    assert cles("312M") == cles("312 million") == cles("312000000")
+    assert cles("5 milliards") == cles("5000000000")
+
+
 def test_un_identifiant_long_ne_perd_pas_de_precision():
     """Decimal et non float : deux identifiants voisins ne doivent pas se confondre."""
     assert cles("12345678901234567890") != cles("12345678901234567891")

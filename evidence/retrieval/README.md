@@ -6,7 +6,7 @@
 alias entries. Each carries `ndcg@10`, `mrr`, `recall@100` and its query count.
 
 The file is sealed. `integrity_hash` is a SHA-256 over the canonical serialisation of everything
-else in it, so a later run compares against a fixed reference rather than against a memory of one.
+else in it, so a later run compares against a fixed reference and not against a memory of one.
 To check the seal yourself:
 
     python3 -c "import sys; sys.path.insert(0,'evidence/code'); \
@@ -27,7 +27,7 @@ stack travels with the numbers.
 
 Written before the results, not after. A drop fails the gate only when it is both beyond the delta
 and statistically significant. Both conditions, which is the part that makes the policy usable
-rather than decorative: it does not trip on noise, and it cannot be argued away when it trips.
+and not decorative: it does not trip on noise, and it cannot be argued away when it trips.
 
 ## `qrels-provenance/`
 

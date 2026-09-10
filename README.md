@@ -5,30 +5,35 @@
 Eight years keeping bought software running inside a regulated bank. Since March 2026 I build my
 own systems, and I measure them before I believe them.
 
-This repository holds the measurements. Every artefact is a file from a real run.
+This repository holds the measurements. The experimental evidence comes from real runs; the gate
+examples are synthetic and labelled as such.
 
 ## What I built
 
-| System | What it does | Status |
+| System | What it does | Evidence here |
 |---|---|---|
-| Knowledge platform | Hybrid retrieval over enterprise documents, per-connector access control, agent access over MCP | Built, 284,347 lines of Python |
-| Evaluation bench | IR measurement under a written protocol, sealed corpus, regression gate | Built, and the source of most of this page |
-| Agent harness | Scoped development agents across five model backends, chained audit log | In daily use, described in section 2 |
-| labo-llm.fr | Bilingual technical corpus on language models | Live, 149 articles in each language |
+| Knowledge platform | Hybrid retrieval over enterprise documents, per-connector access control, agent access over MCP | Its retrieval engine, measured in section 1 |
+| Evaluation bench | IR measurement under a written protocol, sealed corpus, regression gate | Most of `evidence/`, and the code in `evidence/code/` |
+| Agent harness | Scoped development agents across five model backends, chained audit log | None yet. Section 2 says so |
+| labo-llm.fr | Bilingual technical corpus on language models | The live site, 149 articles in each language |
 
-Six others exist. The eight together come to 448,866 lines, built alone, without a software team.
-Coding agents are part of that workflow, which is what section 2 is about, and the commit history
-of this repository shows them.
+Three of those four are software products, and five more exist, so eight in all. Sizes and the
+commands behind them are in [`evidence/declared-metrics.md`](evidence/declared-metrics.md), kept
+off this page because a line count measures how much code there is and nothing else.
+
+I designed and delivered them independently, without a software team. Coding agents are part of
+that workflow, which is what section 2 is about, and the commit history here shows them.
 
 ## Check it before you read it
 
     git clone https://github.com/katssen4/engineering-portfolio
     cd engineering-portfolio
+    python3 -m pip install -r requirements-ci.txt
     python3 tools/verify.py
 
-45 checks, no network, standard library plus a pinned pytest. GitHub runs it on every push, which
-is what the badge reports. It refuses cleanly on a damaged artefact instead of dying on it: hand it
-a truncated run file and it names the malformed line and stops.
+46 checks. Once its one test dependency is installed the run touches no network and downloads no
+corpus. GitHub runs it on every push, which is what the badge reports. Hand it a truncated run file
+and it names the malformed line and stops, instead of dying on a stack trace.
 
 Three families of number appear below, and they carry different weight.
 
@@ -44,7 +49,7 @@ anyone who edits the lock can recompute it.
 and date in [`evidence/declared-metrics.md`](evidence/declared-metrics.md). You can read the
 method. You cannot run it against a system you do not have.
 
-The 58 shipped unit tests run in the same pass, and the script finishes by counting its own checks
+The 59 shipped unit tests run in the same pass, and the script finishes by counting its own checks
 against the numbers printed on this page.
 
 ---
@@ -94,8 +99,15 @@ says `status: fail`, `verdict: null`, and the note reads: *the arm is BLOCKED, n
 no number interpreted.* No threshold was relaxed, on the memory guard or on the tolerance.
 
 Everything is in [`evidence/finetune-blocked/`](evidence/finetune-blocked/), including the TREC run
-files and the held-out judgements, so `verify.py` recomputes the failure and localises it to that
-single query.
+files and the held-out judgements. `verify.py` recomputes the control failure from them, and checks
+the shipped per-query diagnostic that puts the whole gap on one query.
+
+**The blinding here is procedural, not technical, and you should know which.** The treated run and
+the judgements are both shipped, so anyone can score the fine-tuned arm in a few lines. I have not,
+and will not while the positive control is failing. What the repository guarantees is a decision
+record written beforehand and a run file that carries no verdict. What it does not guarantee is
+that the number is out of reach. Saying otherwise would be the kind of claim this page exists to
+avoid.
 
 ---
 
@@ -178,7 +190,7 @@ its source, hypotheses are marked as such, and negative results are archived lik
 - **No Kubernetes in production, no Helm, no public cloud**, here or anywhere in my experience.
   What does exist on the platform this bench measures is containerisation: a Docker image on a slim
   base running as a non-root user, dependencies installed from a lock file carrying **1,311 pinned
-  hashes**, a compose file with a health probe, and **4,005 lines of deployment runbook** down to
+  hashes**, a compose file with a health probe, and **3,310 lines of deployment runbook** down to
   DNS records and the first production cutover. That is a Docker host, and a Docker host is a
   different skill from a cluster.
 - **No GPU orchestration, no inference platform at scale.** The bench runs on one machine.

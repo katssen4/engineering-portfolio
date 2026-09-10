@@ -11,7 +11,7 @@ touched, tuning coverage. Overlap zero on the first three, `passed: true`, 476 e
 tuning items. Leakage is checked before the run, because after the run there is an incentive not
 to look.
 
-**`guard_encode.json`** is the memory ceiling, measured rather than assumed, with the branch name
+**`guard_encode.json`** is the memory ceiling, measured and not assumed, with the branch name
 it would have taken had the ceiling been hit (`STOP-VRAM-ENCODE`).
 
 **`F1_decision.json`** is the run itself, and the file worth reading closely:

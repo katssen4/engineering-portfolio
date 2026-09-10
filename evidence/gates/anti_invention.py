@@ -68,16 +68,26 @@ UNITES = ("%", "B", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB",
 # Multiplicateurs colles au nombre : « 48k » vaut 48000. Reconnus seulement quand rien
 # ne suit, pour que « 5 MB » reste une unite et non 5 millions de B.
 MULTIPLICATEURS = {"k": 1000, "K": 1000, "M": 10**6, "G": 10**9, "T": 10**12}
+
+# Multiplicateurs en toutes lettres, francais et anglais. Sans eux, « 312M » et
+# « 312 million » donnaient deux cles differentes : faux positif releve en revue.
+MOTS_MULTIPLICATEURS = {
+    "thousand": 1000, "thousands": 1000, "millier": 1000, "milliers": 1000,
+    "million": 10**6, "millions": 10**6,
+    "billion": 10**9, "billions": 10**9, "milliard": 10**9, "milliards": 10**9,
+}
 _UNITE = "|".join(sorted((re.escape(u) for u in UNITES), key=len, reverse=True))
 _MILLIERS = re.compile(r"^\d{1,3}(?:[\u202f\u00a0 .,]\d{3})+$")
 _DECIMAL = re.compile(r"^\d+[.,]\d+$")
 _NOMBRE = re.compile(
     r"(?P<signe>[-+\u2212])?"
     r"(?P<corps>\d[\d\u202f\u00a0 .,]*\d|\d)"
-    r"(?:(?P<mult>[kKMGT])(?![\w])|\s?(?P<unite>" + _UNITE + r"))?(?![\w.,])")
+    r"(?:\s(?P<motmult>" + "|".join(sorted(MOTS_MULTIPLICATEURS, key=len, reverse=True)) + r")\b"
+    r"|(?P<mult>[kKMGT])(?![\w])|\s?(?P<unite>" + _UNITE + r"))?(?![\w.,])")
 
 
-def _canonique(signe: str, corps: str, unite: str, mult: str = "") -> str:
+def _canonique(signe: str, corps: str, unite: str, mult: str = "",
+               motmult: str = "") -> str:
     """Une ecriture par valeur, pour que « 90,000 » et « 90000 » se confondent et que
     « 5.0 » et « 50 » ne se confondent pas.
 
@@ -98,6 +108,8 @@ def _canonique(signe: str, corps: str, unite: str, mult: str = "") -> str:
         d = Decimal(brut)
         if mult:
             d *= MULTIPLICATEURS[mult]
+        elif motmult:
+            d *= MOTS_MULTIPLICATEURS[motmult.lower()]
         valeur = str(d.normalize())
     except InvalidOperation:
         valeur = brut
@@ -110,12 +122,12 @@ def nombres(t: str) -> dict:
 
     Ce que la cle retient : le signe, la valeur, l'unite quand elle est dans la liste fermee
     ci-dessus. Ce qu'elle ne retient pas : la forme d'ecriture des milliers. Les limites
-    connues de cette normalisation sont livrees dans `example/known_false_negatives/`.
+    connues de cette normalisation sont livrees dans `tests/test_anti_invention.py`.
     """
     cles = {}
     for m in _NOMBRE.finditer(t):
-        cle = _canonique(m.group("signe"), m.group("corps"),
-                         m.group("unite"), m.group("mult") or "")
+        cle = _canonique(m.group("signe"), m.group("corps"), m.group("unite"),
+                         m.group("mult") or "", m.group("motmult") or "")
         cles.setdefault(cle, m.group(0).strip())
     return cles
 
