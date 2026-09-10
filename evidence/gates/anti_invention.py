@@ -18,6 +18,7 @@ Usage : python3 verifier_variante.py <socle.md> <variante.md>
 
 import re
 import sys
+from decimal import Decimal, InvalidOperation
 
 # Mots qui commencent une phrase ou un titre et ne sont pas des noms propres.
 BANALS = {"The", "A", "An", "In", "It", "Since", "Then", "Built", "How", "What", "Stated",
@@ -59,10 +60,64 @@ def visible(chemin: str) -> str:
     return re.sub(r"<!--.*\Z", "", t, flags=re.DOTALL)
 
 
-def nombres(t: str) -> set:
-    """Nombres, espaces fines et virgules de milliers normalisées."""
-    bruts = re.findall(r"\d[\d  .,]*\d|\d", t)
-    return {re.sub(r"[  .,]", "", n) for n in bruts}
+# Unites reconnues comme faisant partie du nombre. Liste fermee : « 5 MB » et « 5 GB »
+# doivent differer, mais « 48000 events » ne doit pas capturer « even » comme unite.
+UNITES = ("%", "B", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB",
+          "TiB", "ms", "s", "min", "h", "j", "€", "$", "£")
+
+# Multiplicateurs colles au nombre : « 48k » vaut 48000. Reconnus seulement quand rien
+# ne suit, pour que « 5 MB » reste une unite et non 5 millions de B.
+MULTIPLICATEURS = {"k": 1000, "K": 1000, "M": 10**6, "G": 10**9, "T": 10**12}
+_UNITE = "|".join(sorted((re.escape(u) for u in UNITES), key=len, reverse=True))
+_MILLIERS = re.compile(r"^\d{1,3}(?:[\u202f\u00a0 .,]\d{3})+$")
+_DECIMAL = re.compile(r"^\d+[.,]\d+$")
+_NOMBRE = re.compile(
+    r"(?P<signe>[-+\u2212])?"
+    r"(?P<corps>\d[\d\u202f\u00a0 .,]*\d|\d)"
+    r"(?:(?P<mult>[kKMGT])(?![\w])|\s?(?P<unite>" + _UNITE + r"))?(?![\w.,])")
+
+
+def _canonique(signe: str, corps: str, unite: str, mult: str = "") -> str:
+    """Une ecriture par valeur, pour que « 90,000 » et « 90000 » se confondent et que
+    « 5.0 » et « 50 » ne se confondent pas.
+
+    Trois formes de corps sont distinguees au lieu d'une seule : les groupes de milliers,
+    ou tous les separateurs tombent ; le decimal, ramene a sa valeur numerique ; et le reste,
+    laisse tel quel. Le signe et l'unite entrent dans la cle, donc « -10 » differe de « 10 »
+    et « 5 MB » differe de « 5 GB ».
+    """
+    if _MILLIERS.match(corps):
+        brut = re.sub(r"[\u202f\u00a0 .,]", "", corps)
+    elif _DECIMAL.match(corps):
+        brut = corps.replace(",", ".")
+    else:
+        brut = re.sub(r"[\u202f\u00a0 ]", "", corps)
+    try:
+        # Decimal et non float : un identifiant de vingt chiffres ne doit pas perdre
+        # de precision. normalize() rend « 5.0 » et « 5 » a la meme cle.
+        d = Decimal(brut)
+        if mult:
+            d *= MULTIPLICATEURS[mult]
+        valeur = str(d.normalize())
+    except InvalidOperation:
+        valeur = brut
+    signe = "-" if signe in ("-", "\u2212") else ""
+    return signe + valeur + (unite or "")
+
+
+def nombres(t: str) -> dict:
+    """Jetons numeriques, une cle par valeur.
+
+    Ce que la cle retient : le signe, la valeur, l'unite quand elle est dans la liste fermee
+    ci-dessus. Ce qu'elle ne retient pas : la forme d'ecriture des milliers. Les limites
+    connues de cette normalisation sont livrees dans `example/known_false_negatives/`.
+    """
+    cles = {}
+    for m in _NOMBRE.finditer(t):
+        cle = _canonique(m.group("signe"), m.group("corps"),
+                         m.group("unite"), m.group("mult") or "")
+        cles.setdefault(cle, m.group(0).strip())
+    return cles
 
 
 def sans_titre(t: str) -> str:
@@ -87,7 +142,10 @@ if __name__ == "__main__":
     if len(positionnels) < 2:
         sys.exit("usage: anti_invention.py <source_de_verite.md> <derive.md> [--banals mots|fichier]")
     s, v = sans_titre(visible(positionnels[0])), sans_titre(visible(positionnels[1]))
-    nb = nombres(v) - nombres(s)
+    nv, ns = nombres(v), nombres(s)
+    # On compare des cles canoniques, on affiche le texte reellement lu : « 9E+4 » est
+    # une bonne cle et un mauvais message.
+    nb = {nv[c] for c in nv.keys() - ns.keys()}
     # un nom est absent seulement s'il ne figure nulle part dans le socle, casse comprise
     bas = s.lower()
     nm = {n for n in noms(v) - noms(s) if n not in bas}

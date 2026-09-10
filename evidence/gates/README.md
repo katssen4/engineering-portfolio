@@ -14,8 +14,13 @@ in English. Stated rather than translated after the fact.
 
 ## `anti_invention.py`
 
-Compares a derived document against its source of truth and refuses anything that appeared out of
-nowhere. It extracts every number and every proper noun from both, and exits 1 on a difference.
+Compares a derived document against its source of truth with a deliberately coarse lexical
+heuristic, and exits 1 on a token the source does not carry.
+
+Numeric tokens keep their sign, their decimal part and their unit, so `-10` differs from `10`,
+`5.0` from `50`, and `5 MB` from `5 GB`. Thousands separators and the `k`/`M` multipliers are
+normalised, so `48k`, `48,000` and `48 000` are the same key. Proper nouns are capitalised words
+that are not sentence openers, which is why `--banals` exists.
 
 The example directory ships a fictional datasheet and two documents derived from it. One is
 honest. One inflates a throughput figure and adds a deployment claim that was never made:
@@ -28,9 +33,15 @@ honest. One inflates a throughput figure and adds a deployment claim that was ne
             nombres absents du socle : 90000
             noms absents du socle    : kubernetes
 
-It over-reports rather than under-reports: a capitalised word opening a sentence can be read as a
-proper noun, which is why `--banals` exists. For a gate that guards facts, a false alarm costs a
-glance and a missed invention costs credibility.
+**What it does not catch, and the tests that say so.** Being lexical, it misses a sentence that
+contradicts the source without adding a token: *Scaling across nodes has been validated in
+production* passes against a source stating there is no cluster. And it compares what a derivation
+adds, never what it removes, so deleting a whole section of caveats is invisible to it. Both cases
+are in `tests/test_anti_invention.py` as passing tests that assert the real behaviour: improving
+the gate breaks them, which forces this paragraph to change at the same time.
+
+Within its remit it over-reports rather than under-reports. For a gate that guards facts, a false
+alarm costs a glance and a missed invention costs credibility.
 
 ## `build_document.py`
 
@@ -47,7 +58,7 @@ Set `NOM_ATTENDU` in the environment for that last one.
 
 ## `probe_job_boards.py`
 
-Calls the public endpoints of five applicant tracking systems and records what actually answered.
+Calls the public endpoints of six applicant tracking systems and records what actually answered.
 Nothing here comes from memory: every URL is really called and the result is written down as it
 came.
 
@@ -72,4 +83,4 @@ a format that forces you to write a proof you do not have manufactures false one
 It caught two dead test names in that register while I was writing it, which is the whole
 argument for having it.
 
-    python3 -m pytest -q evidence/gates/tests/    # 11 tests
+    python3 -m pytest -q evidence/gates/tests/

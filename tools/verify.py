@@ -21,12 +21,15 @@ It does five things and prints what it found:
    passes the honest one and refuses the one carrying an invention.
 5. Runs the shipped unit tests, if pytest is available.
 
-Exit code 0 when everything agrees, 1 otherwise. Standard library only.
+Exit code 0 when everything agrees, 1 otherwise. Standard library, plus pytest for the
+unit-test step, which names the missing dependency rather than failing obscurely.
 """
 from __future__ import annotations
 
+import collections
 import importlib.util
 import json
+import math
 import re
 import subprocess
 import sys
@@ -42,6 +45,7 @@ PROJETS = ["Hadoop", "Cassandra", "HBase", "Spark"]
 COLONNES = ["keyword", "vector", "hybrid"]
 
 echecs: list[str] = []
+controles = 0
 
 
 def titre(n: int, texte: str) -> None:
@@ -49,6 +53,8 @@ def titre(n: int, texte: str) -> None:
 
 
 def dit(ok: bool, texte: str) -> None:
+    global controles
+    controles += 1
     print(f"   {'OK  ' if ok else 'ECHEC'} {texte}")
     if not ok:
         echecs.append(texte)
@@ -128,8 +134,57 @@ def verifie_finetune() -> None:
         f"leakage gate passed, tuning/holdout overlap = {gate['check1_tuning_holdout_overlap']}")
 
 
+def ndcg_at_10(rangs: list, jugements: dict) -> float:
+    """nDCG@10 d'une requete, departage par la colonne de rang du fichier TREC.
+
+    Ecrit ici en entier, en bibliotheque standard, pour que le chiffre publie soit recalcule
+    sous les yeux du lecteur au lieu d'etre relu dans un fichier de decision.
+    """
+    docs = [d for _, d in sorted(rangs)][:10]
+    dcg = sum(jugements.get(d, 0) / math.log2(i + 2) for i, d in enumerate(docs))
+    ideal = sorted(jugements.values(), reverse=True)[:10]
+    idcg = sum(g / math.log2(i + 2) for i, g in enumerate(ideal))
+    return dcg / idcg if idcg else 0.0
+
+
+def verifie_recalcul() -> None:
+    titre(4, "The control score, recomputed from the TREC files")
+    art = DECISION.parent / "F1_artifacts"
+    jugements = collections.defaultdict(dict)
+    for ligne in (art / "B_holdout_qrels.trec").read_text(encoding="utf-8").splitlines():
+        if ligne.strip():
+            q, _, d, r = ligne.split()
+            jugements[q][d] = int(r)
+    run = collections.defaultdict(list)
+    for ligne in (art / "B_holdout_base_run.trec").read_text(encoding="utf-8").splitlines():
+        if ligne.strip():
+            q, _, d, rang, _score, _tag = ligne.split()
+            run[q].append((int(rang), d))
+
+    scores = [ndcg_at_10(run[q], jugements[q]) for q in jugements]
+    recalcule = round(sum(scores) / len(scores), 6)
+
+    d = json.loads(DECISION.read_text(encoding="utf-8"))
+    c = d["control"]
+    dit(len(scores) == c["n"], f"{len(scores)} queries scored, decision record says {c['n']}")
+    dit(recalcule == c["computed"],
+        f"nDCG@10 recomputed from the run files: {recalcule}, "
+        f"decision record says {c['computed']}")
+    ecart = abs(recalcule - c["target"])
+    dit(ecart > c["tolerance"],
+        f"it misses the reference of {c['target']} by {ecart:.6f}, "
+        f"tolerance {c['tolerance']}: the control fails on the numbers, not on the record")
+
+    diag = [json.loads(l) for l in
+            (art / "F1_control_diag.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    ecarts = [x for x in diag if abs(x.get("delta", 0)) > 1e-5]
+    dit(len(ecarts) == 1,
+        f"the whole gap sits in {len(ecarts)} query out of {len(diag)}"
+        + (f": {ecarts[0]['qid']}, delta {ecarts[0]['delta']}" if len(ecarts) == 1 else ""))
+
+
 def verifie_portes() -> None:
-    titre(4, "The gates, run on the example data they ship with")
+    titre(5, "The gates, run on the example data they ship with")
     gates = RACINE / "evidence" / "gates"
     exemple = gates / "example"
 
@@ -167,9 +222,12 @@ def verifie_portes() -> None:
 
 
 def verifie_tests() -> None:
-    titre(5, "Shipped unit tests")
+    titre(6, "Shipped unit tests")
+    if importlib.util.find_spec("pytest") is None:
+        dit(False, "pytest is not installed. Run: pip install pytest")
+        return
     for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
-                           ("evidence/gates/tests/", 11)):
+                           ("evidence/gates/tests/", 23)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
@@ -181,18 +239,43 @@ def verifie_tests() -> None:
         dit(r.returncode == 0 and f"{attendu} passed" in resume, f"{cible}: {resume}")
 
 
+def verifie_comptes() -> None:
+    """Le depot compte ses propres controles au lieu de les recopier a la main.
+
+    Les deux revues du 2026-09-10 ont trouve `evidence/README.md` reste a 32 alors que le
+    README racine annoncait 34. Un chiffre ecrit deux fois derive toujours ; celui-ci est
+    desormais confronte a la realite a chaque execution.
+    """
+    titre(7, "The repository counts its own checks")
+    texte = README.read_text(encoding="utf-8")
+    attendu = f"{controles + 3} checks"
+    dit(attendu in texte, f"README states \"{attendu}\"")
+    tests = (len(re.findall(r"^def test_", (RACINE / "evidence" / "code" /
+             "test_eval_regression.py").read_text(encoding="utf-8"), re.M))
+             + sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
+                   for f in sorted((RACINE / "evidence" / "gates" / "tests").glob("test_*.py"))))
+    dit(f"{tests} shipped unit tests" in texte, f"README states \"{tests} shipped unit tests\"")
+    carte = (RACINE / "evidence" / "README.md").read_text(encoding="utf-8")
+    dit(not re.search(r"\b\d+ checks\b", carte),
+        "evidence/README.md states no check count of its own, so it cannot drift")
+
+
 def main() -> int:
     print("Verifying the experimental results this repository prints.")
     payload = verifie_sceau()
     verifie_readme(payload)
     verifie_finetune()
+    verifie_recalcul()
     verifie_portes()
     verifie_tests()
+    verifie_comptes()
     print()
     if echecs:
         print(f"{len(echecs)} check(s) failed.")
         return 1
-    print("Every recomputable number in the README matches the artefacts that ship with it.")
+    print(f"{controles} checks passed. The control score was recomputed from the run files, "
+          "the retrieval table matches the sealed lock, and the counts on this page match "
+          "what this script found.")
     return 0
 
 

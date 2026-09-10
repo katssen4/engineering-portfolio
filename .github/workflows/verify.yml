@@ -1,5 +1,11 @@
 # Fait tourner tools/verify.py a chaque poussee, pour que le lecteur n'ait pas a croire
 # sur parole que le depot passe son propre controle.
+#
+# Versions epinglees des deux cotes : les actions sur leur generation Node 24 (les v4 et v5
+# emettaient un avertissement de depreciation Node 20, releve par une revue exterieure le
+# 2026-09-10), et pytest sur une version exacte via requirements-ci.txt. Un depot dont la
+# these est la reproductibilite ne fait pas tourner sa propre verification sur une
+# dependance flottante.
 name: verify
 
 on:
@@ -11,9 +17,9 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install pytest
+      - run: pip install -r requirements-ci.txt
       - run: python3 tools/verify.py
