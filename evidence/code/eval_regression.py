@@ -10,9 +10,12 @@ Exit codes (drift_audit discipline):
     1 = REGRESSION (CI gate trips)
     2 = setup / integrity error (cannot gate)
 
-The pure functions (compute_integrity_hash / verify_lock / is_regression) are testable
-NOW, with no corpus. The actual index -> query -> qrels -> metrics step is stubbed
-(`TODO(bench-wave)`) until the FTS5 run is wired — corpus is not ingested yet (ADR-0004).
+The pure functions (compute_integrity_hash / verify_lock / is_regression) are testable with
+no corpus at all. The index -> query -> qrels -> metrics step is wired for the B collections
+and exits 2 on any other, which is the honest behaviour for a gate that cannot run.
+(This paragraph used to say the step was stubbed and the corpus not ingested. That stopped
+being true when the FTS5 run was wired; corrected 2026-09-10 after an outside review read it
+against baseline_lock.json and found the contradiction.)
 
 ranx note (verified this session): `ranx.compare(qrels, runs, metrics, stat_test='student',
 max_p=0.01, random_seed=42, ...)` — the kwarg to select the test is `stat_test=` (default
@@ -67,6 +70,17 @@ ScoringRegimeError = _tp.ScoringRegimeError
 UnstatedRegimeError = _tp.UnstatedRegimeError
 
 # Exit codes (mirror drift_audit.py).
+class CannotGateError(RuntimeError):
+    """La porte refuse de conclure faute de la preuve que sa politique exige.
+
+    Levee quand la metrique a chute au-dela du delta, que la politique exige la
+    significativite, et qu'aucune p-value n'est disponible. Rendre False dans ce cas
+    reviendrait a lire une absence de preuve comme une preuve d'absence : c'est le seul
+    endroit du module ou la porte ne refusait pas, alors que le garde de regime de
+    notation, lui, refuse depuis S31. Corrige le 2026-09-10 apres revue exterieure.
+    """
+
+
 EXIT_OK = 0
 EXIT_REGRESSION = 1
 EXIT_SETUP_ERROR = 2
@@ -156,9 +170,12 @@ def is_regression(
         current < baseline - delta_abs
         AND (not require_significance  OR  p_value < max_p)
 
-    `policy` keys: delta_abs, require_significance, max_p. If significance is required
-    but no `p_value` is supplied, the drop is NOT flagged (cannot prove significance →
-    fail-open on the significance leg only; the δ leg already gated).
+    `policy` keys: delta_abs, require_significance, max_p. If the metric dropped past the
+    delta, significance is required, and no `p_value` is supplied, the gate RAISES
+    `CannotGateError` instead of returning a verdict. Returning False there would read an
+    absence of proof as a proof of absence, on the one leg of this module that used to
+    fail open. Changed 2026-09-10; the previous behaviour was documented and tested, and
+    it was still the wrong default for a gate whose purpose is to refuse.
 
     **Scoring-regime guard (S31, ADR-0013 item 4 — the G9 path).** `current_tie_policy` and
     `baseline_tie_policy` are the regime markers of the two numbers. If they differ, the gate
@@ -172,8 +189,8 @@ def is_regression(
     `baseline_is_legacy=True` — `baseline_lock.json` carries no marker and is byte-untouched
     since S5, so it is a genuine pre-marker artefact — and passes **nothing** on the current
     side, because a freshly computed number carrying no marker is a defect and must raise
-    (`UnstatedRegimeError`) rather than be filed as pre-regime. This guard fails CLOSED; the
-    significance leg's fail-open is unchanged and unrelated.
+    (`UnstatedRegimeError`) rather than be filed as pre-regime. This guard fails CLOSED, and since
+    2026-09-10 the significance leg does too.
     """
     assert_same_scoring_regime(
         current_tie_policy, baseline_tie_policy, context="eval_regression.is_regression (G9)",
@@ -186,7 +203,10 @@ def is_regression(
     if not policy.get("require_significance", False):
         return True
     if p_value is None:
-        return False
+        raise CannotGateError(
+            f"significance required by policy but no p-value available "
+            f"(current={current}, baseline={baseline}, "
+            f"delta_abs={delta_abs}): cannot gate")
     return p_value < float(policy.get("max_p", 0.05))
 
 
@@ -439,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[eval-regression] manifest integrity error: {message}", file=sys.stderr)
         return EXIT_SETUP_ERROR
 
-    # 3. Run current metrics (STUB — exit 2 until the FTS5 run is wired).
+    # 3. Run current metrics. Wired for the B collections, exit 2 elsewhere.
     try:
         current = run_current_metrics(manifest, args.collection, seed, policy)
     except NotImplementedError as exc:
@@ -464,6 +484,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (ScoringRegimeError, UnstatedRegimeError) as exc:
         print(f"[eval-regression] scoring-regime error: {exc}", file=sys.stderr)
+        return EXIT_SETUP_ERROR
+    except CannotGateError as exc:
+        print(f"[eval-regression] cannot gate: {exc}", file=sys.stderr)
         return EXIT_SETUP_ERROR
     if regressed:
         print(

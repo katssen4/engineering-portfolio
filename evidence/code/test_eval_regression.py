@@ -112,9 +112,24 @@ def test_no_regression_past_delta_but_not_significant():
     assert er.is_regression(0.370, 0.420, _POLICY_SIG, p_value=0.20, **_LEGACY) is False
 
 
-def test_significance_required_but_no_p_value_does_not_flag():
-    # Past delta, significance required, but no p_value supplied → cannot prove → no flag.
-    assert er.is_regression(0.370, 0.420, _POLICY_SIG, p_value=None, **_LEGACY) is False
+def test_significance_required_but_no_p_value_refuses_to_gate():
+    """Le cas que la revue exterieure du 2026-09-10 a releve.
+
+    Chute au-dela du delta, significativite exigee, pas de p-value : le module rendait
+    False, donc « pas de regression », alors que la seule chose etablie est qu'on ne peut
+    pas savoir. Il refuse desormais, comme le garde de regime de notation le fait deja.
+    """
+    with pytest.raises(er.CannotGateError):
+        er.is_regression(0.370, 0.420, _POLICY_SIG, p_value=None, **_LEGACY)
+
+
+def test_pas_de_p_value_mais_pas_de_chute_ne_refuse_pas():
+    """Le refus porte sur la seule branche ou la p-value est necessaire pour conclure.
+
+    Sans chute au-dela du delta, la significativite n'entre jamais en jeu : la porte
+    conclut sans p-value, et elle a raison de le faire.
+    """
+    assert er.is_regression(0.415, 0.420, _POLICY_SIG, p_value=None, **_LEGACY) is False
 
 
 def test_regression_past_delta_when_significance_not_required():

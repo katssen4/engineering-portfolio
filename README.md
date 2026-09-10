@@ -11,16 +11,22 @@ Everything below is a real artefact from work I built alone. Nothing here is a t
 
 ## Check it before you read it
 
-Every number on this page is recomputed from files that ship with the repository:
-
     git clone https://github.com/katssen4/engineering-portfolio
     cd engineering-portfolio
     python3 tools/verify.py
 
-32 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the table below cell by
-cell from that lock, confirms the blocked fine-tune really was blocked, runs the anti-invention
-gate on the example documents that ship with it, and runs the 45 shipped unit tests. No network,
-no corpus download, standard library plus pytest.
+34 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the retrieval table below
+cell by cell from that lock, confirms the blocked fine-tune really was blocked, exercises both
+gates on the example data that ships with them, and runs the 46 shipped unit tests. No network, no
+corpus download, standard library plus pytest.
+
+**What that covers, and what it does not.** The retrieval results and the fine-tune decision are
+*recomputed*: the numbers below are read out of the sealed artefacts at the moment you run the
+script, so a drifted README fails the check. The counts that describe systems not shipped here,
+lines of code, pinned hashes, runbook lines, article totals, are *declared*: they were measured by
+a command written next to each of them in the text, and you would have to take my word for the
+measurement or ask me to run it in front of you. The two are not the same thing and I would rather
+name the line between them than blur it.
 
 `evidence/` holds the working artefacts themselves, copied out of the bench that produced them.
 

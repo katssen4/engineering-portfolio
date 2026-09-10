@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Recompute every number this repository prints, from the files it ships.
+"""Recompute the experimental results this repository prints, from the files it ships.
+
+It covers what is recomputable: the retrieval table, the seal on the reference lock, the
+blocked fine-tune decision, the two gates on their example data, and the unit tests. Counts
+describing systems that are not shipped here are declared in the README, not recomputed, and
+the README says so.
 
 Run it from the repository root:
 
@@ -144,6 +149,18 @@ def verifie_portes() -> None:
     dit("90000" in sortie, "the inflated throughput figure is named in the output")
     dit("kubernetes" in sortie, "the unsourced deployment claim is named in the output")
 
+    mod = charge_module()
+    politique = {"delta_abs": 0.01, "require_significance": True, "max_p": 0.05}
+    try:
+        mod.is_regression(0.370, 0.420, politique, p_value=None,
+                          baseline_is_legacy=True, current_is_legacy=True)
+        dit(False, "the regression gate returned a verdict with no p-value to support it")
+    except mod.CannotGateError:
+        dit(True, "the regression gate refuses to conclude when significance cannot be shown")
+    sans_chute = mod.is_regression(0.415, 0.420, politique, p_value=None,
+                                   baseline_is_legacy=True, current_is_legacy=True)
+    dit(sans_chute is False, "and it still concludes when no p-value is needed")
+
     r = subprocess.run([sys.executable, "proof_registry.py"],
                        cwd=gates, capture_output=True, text=True, timeout=120)
     dit(r.returncode == 0, "the proof register of evidence/gates passes its own check")
@@ -151,7 +168,7 @@ def verifie_portes() -> None:
 
 def verifie_tests() -> None:
     titre(5, "Shipped unit tests")
-    for cible, attendu in (("evidence/code/test_eval_regression.py", 34),
+    for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
                            ("evidence/gates/tests/", 11)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
@@ -175,7 +192,7 @@ def main() -> int:
     if echecs:
         print(f"{len(echecs)} check(s) failed.")
         return 1
-    print("Everything the README prints matches the files that ship with it.")
+    print("Every recomputable number in the README matches the artefacts that ship with it.")
     return 0
 
 
