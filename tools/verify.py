@@ -182,7 +182,7 @@ def verifie_tests() -> None:
 
 
 def main() -> int:
-    print("Verifying every number this repository prints.")
+    print("Verifying the experimental results this repository prints.")
     payload = verifie_sceau()
     verifie_readme(payload)
     verifie_finetune()

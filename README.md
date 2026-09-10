@@ -1,5 +1,7 @@
 # Applied AI engineering, measured
 
+[![verify](https://github.com/katssen4/engineering-portfolio/actions/workflows/verify.yml/badge.svg)](https://github.com/katssen4/engineering-portfolio/actions/workflows/verify.yml)
+
 I build AI systems inside regulated enterprises, and I measure whether they work.
 
 This repository is a portfolio. It exists to show four things a hiring team cannot check from a
@@ -18,7 +20,8 @@ Everything below is a real artefact from work I built alone. Nothing here is a t
 34 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the retrieval table below
 cell by cell from that lock, confirms the blocked fine-tune really was blocked, exercises both
 gates on the example data that ships with them, and runs the 46 shipped unit tests. No network, no
-corpus download, standard library plus pytest.
+corpus download, standard library plus pytest. GitHub runs it on every push, which is what the
+badge above reports: you do not have to take my word for the fact that it passes.
 
 **What that covers, and what it does not.** The retrieval results and the fine-tune decision are
 *recomputed*: the numbers below are read out of the sealed artefacts at the moment you run the
