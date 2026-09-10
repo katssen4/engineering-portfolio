@@ -1,0 +1,19 @@
+# Fait tourner tools/verify.py a chaque poussee, pour que le lecteur n'ait pas a croire
+# sur parole que le depot passe son propre controle.
+name: verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: python3 tools/verify.py
