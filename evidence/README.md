@@ -1,8 +1,8 @@
 # Evidence
 
-Every experimentally verifiable claim in the top-level README has a file here. One claim does
-not: agent governance, in section 2, is described and not shipped. That gap is named in the
-README itself.
+Every experimentally verifiable claim in the top-level README has a file here, with one named
+exception: the dispatch layer and the commit broker of section 2 are described and not shipped,
+and the README says so where it says it.
 
 The evidence directories hold the original artefacts wherever they can be published safely,
 copied out of the bench that produced them, with absolute paths made relative and nothing else
@@ -26,6 +26,7 @@ script and stated in the root README only, so it cannot drift between two docume
 | `decisions/` | Architecture decision records |
 | `declared-metrics.md` | The declared numbers, each with the command behind it |
 | `gates/` | Four tools that refuse, with example data so the refusal can be seen |
+| `agent-governance/` | The write-scope guard and the chained audit log, reduced, with the tests that show them refusing |
 
 ## What is not here
 

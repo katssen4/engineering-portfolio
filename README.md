@@ -31,7 +31,7 @@ that workflow, which is what section 2 is about, and the commit history here sho
     python3 -m pip install -r requirements-ci.txt
     python3 tools/verify.py
 
-46 checks. Once its one test dependency is installed the run touches no network and downloads no
+52 checks. Once its one test dependency is installed the run touches no network and downloads no
 corpus. GitHub runs it on every push, which is what the badge reports. Hand it a truncated run file
 and it names the malformed line and stops, instead of dying on a stack trace.
 
@@ -49,7 +49,7 @@ anyone who edits the lock can recompute it.
 and date in [`evidence/declared-metrics.md`](evidence/declared-metrics.md). You can read the
 method. You cannot run it against a system you do not have.
 
-The 59 shipped unit tests run in the same pass, and the script finishes by counting its own checks
+The 75 shipped unit tests run in the same pass, and the script finishes by counting its own checks
 against the numbers printed on this page.
 
 ---
@@ -197,7 +197,9 @@ its source, hypotheses are marked as such, and negative results are archived lik
 - **No production traffic.** One application of mine is live, with two users. No on-call, no
   incident load, no multi-tenant scale of my own.
 - **No external client reference.** My delivery record sits inside one employer and on my own time.
-- **No agent-governance evidence yet**, as section 2 says.
+- **No evidence for the dispatch layer or the commit broker.** The write-scope guard and the
+  audit chain are shipped and tested; those two are described only, and section 2 says which is
+  which.
 
 ---
 

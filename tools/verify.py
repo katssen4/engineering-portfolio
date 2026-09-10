@@ -263,12 +263,13 @@ def verifie_portes() -> None:
 
 
 def verifie_tests() -> None:
-    titre(6, "Shipped unit tests")
+    titre(7, "Shipped unit tests")
     if importlib.util.find_spec("pytest") is None:
         dit(False, "pytest is not installed. Run: pip install pytest")
         return
     for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
-                           ("evidence/gates/tests/", 24)):
+                           ("evidence/gates/tests/", 24),
+                           ("evidence/agent-governance/tests/", 16)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
@@ -280,6 +281,40 @@ def verifie_tests() -> None:
         dit(r.returncode == 0 and f"{attendu} passed" in resume, f"{cible}: {resume}")
 
 
+def verifie_gouvernance() -> None:
+    """Les deux refus de la couche gouvernance, exerces sur les donnees livrees."""
+    titre(6, "The governance mechanisms, refusing on the data they ship with")
+    gouv = RACINE / "evidence" / "agent-governance"
+    sys.path.insert(0, str(gouv))
+    try:
+        import scope_guard as sg
+    finally:
+        sys.path.pop(0)
+
+    avec = gouv / "example" / "prompt_avec_scope.md"
+    code, _, _ = sg.run_check(avec, ["src/ingestion/connectors/metrics.py"])
+    dit(code == sg.EXIT_CONFORME, f"a write inside the declared scope passes: exit {code}")
+
+    code, hors, _ = sg.run_check(avec, ["src/auth/session.py"])
+    dit(code == sg.EXIT_DEPASSEMENT and hors == ["src/auth/session.py"],
+        f"a write outside it is refused: exit {code}, {hors}")
+
+    code, _, niveau = sg.run_check(gouv / "example" / "prompt_sans_scope.md", ["x.py"])
+    dit(code == sg.EXIT_SANS_PERIMETRE,
+        f"a prompt declaring no scope is refused too, not waved through: exit {code}")
+
+    patterns, niveau = sg.extract_scope_patterns(avec)
+    dit("src/auth/" not in patterns and "src/ingestion/" not in patterns,
+        f"the forbidden and read-only paths never become write permissions ({niveau})")
+
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q",
+                        "evidence/agent-governance/tests/test_audit_chain.py"],
+                       cwd=RACINE, capture_output=True, text=True, timeout=300)
+    derniere = [l for l in r.stdout.splitlines() if l.strip()]
+    dit(r.returncode == 0,
+        f"the audit chain detects tampering: {derniere[-1] if derniere else 'no output'}")
+
+
 def verifie_comptes() -> None:
     """Le depot compte ses propres controles au lieu de les recopier a la main.
 
@@ -287,12 +322,10 @@ def verifie_comptes() -> None:
     README racine annoncait 34. Un chiffre ecrit deux fois derive toujours ; celui-ci est
     desormais confronte a la realite a chaque execution.
     """
-    titre(7, "The repository counts its own checks")
+    titre(8, "The repository counts its own checks")
     texte = README.read_text(encoding="utf-8")
-    tests = (len(re.findall(r"^def test_", (RACINE / "evidence" / "code" /
-             "test_eval_regression.py").read_text(encoding="utf-8"), re.M))
-             + sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
-                   for f in sorted((RACINE / "evidence" / "gates" / "tests").glob("test_*.py"))))
+    tests = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
+                for f in sorted(RACINE.rglob("evidence/**/test_*.py")))
     dit(f"{tests} shipped unit tests" in texte, f"README states \"{tests} shipped unit tests\"")
     carte = (RACINE / "evidence" / "README.md").read_text(encoding="utf-8")
     dit(not re.search(r"\b\d+ checks\b", carte),
@@ -326,6 +359,7 @@ def main() -> int:
     verifie_finetune()
     verifie_recalcul()
     verifie_portes()
+    verifie_gouvernance()
     verifie_tests()
     verifie_comptes()
     print()
