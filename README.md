@@ -2,9 +2,10 @@
 
 I build AI systems inside regulated enterprises, and I measure whether they work.
 
-This repository is a portfolio. It exists to show three things a hiring team cannot check from a
+This repository is a portfolio. It exists to show four things a hiring team cannot check from a
 CV: that I can measure a component instead of asserting it, that I can govern agents that write
-code, and that I publish the numbers that do not favour me.
+code, that I build tools which refuse rather than tools which warn, and that I publish the
+numbers that do not favour me.
 
 Everything below is a real artefact from work I built alone. Nothing here is a tutorial.
 
@@ -16,9 +17,10 @@ Every number on this page is recomputed from files that ship with the repository
     cd engineering-portfolio
     python3 tools/verify.py
 
-25 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the table below cell by
-cell from that lock, confirms the blocked fine-tune really was blocked, and runs the 34 shipped
-unit tests. No network, no corpus download, standard library plus pytest.
+32 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the table below cell by
+cell from that lock, confirms the blocked fine-tune really was blocked, runs the anti-invention
+gate on the example documents that ship with it, and runs the 45 shipped unit tests. No network,
+no corpus download, standard library plus pytest.
 
 `evidence/` holds the working artefacts themselves, copied out of the bench that produced them.
 
@@ -101,7 +103,38 @@ not a multi-tenant inference platform in production, and I do not present it as 
 
 ---
 
-## 3. Writing, in two languages
+## 3. Tools that refuse
+
+Four small programs, one idea: a tool that produces something should be able to refuse. Not warn,
+not log, not colour a line orange. Refuse, with a non-zero exit code, naming the control that
+failed.
+
+The one worth running is the anti-invention gate. It compares a derived document against its
+source of truth, extracts every number and every proper noun from both, and exits 1 on anything
+that appeared out of nowhere. The example data ships with it:
+
+    cd evidence/gates
+    python3 anti_invention.py example/source_of_truth.md example/derived_with_invention.md --banals Meridian
+
+    SIGNAL  derived_with_invention.md
+            nombres absents du socle : 90000
+            noms absents du socle    : kubernetes
+
+An inflated throughput figure and a deployment claim that was never made, both caught. The honest
+derivation of the same source passes.
+
+The others: a document builder that runs eleven layout controls before writing a single byte and
+writes nothing if one fails, a prober that calls the real endpoints of five applicant tracking
+systems because one of them answers 200 on identifiers that do not exist, and a proof register
+that checks its own claims still point at tests that exist and strings that are still in the code.
+
+These come from a workbench I built for my own job search. The data that went through them stays
+private; the machinery is here, with the personal parts turned into parameters. Details in
+[`evidence/gates/`](evidence/gates/).
+
+---
+
+## 4. Writing, in two languages
 
 [labo-llm.fr](https://labo-llm.fr) is a sourced corpus on large language models that I write and
 publish alone. **149 articles in French and 149 in English**, in exact mirror. Each claim carries

@@ -5,14 +5,16 @@ Run it from the repository root:
 
     python3 tools/verify.py
 
-It does four things and prints what it found:
+It does five things and prints what it found:
 
 1. Verifies the seal on the reference lock, by recomputing its SHA-256 with the same
    function the bench uses (evidence/code/eval_regression.py).
 2. Rebuilds the retrieval table of README.md from the lock, and compares it cell by cell
    to what the README actually prints.
 3. Reads the blocked fine-tune decision and checks the control really failed.
-4. Runs the shipped unit tests, if pytest is available.
+4. Runs the anti-invention gate on the example documents that ship with it, and checks it
+   passes the honest one and refuses the one carrying an invention.
+5. Runs the shipped unit tests, if pytest is available.
 
 Exit code 0 when everything agrees, 1 otherwise. Standard library only.
 """
@@ -121,17 +123,45 @@ def verifie_finetune() -> None:
         f"leakage gate passed, tuning/holdout overlap = {gate['check1_tuning_holdout_overlap']}")
 
 
+def verifie_portes() -> None:
+    titre(4, "The gates, run on the example data they ship with")
+    gates = RACINE / "evidence" / "gates"
+    exemple = gates / "example"
+
+    def porte(derive: str):
+        return subprocess.run(
+            [sys.executable, "anti_invention.py",
+             str(exemple / "source_of_truth.md"), str(exemple / derive),
+             "--banals", "Meridian"],
+            cwd=gates, capture_output=True, text=True, timeout=120)
+
+    r = porte("derived_ok.md")
+    dit(r.returncode == 0, f"honest document passes: exit {r.returncode}")
+
+    r = porte("derived_with_invention.md")
+    sortie = r.stdout
+    dit(r.returncode == 1, f"document with an invention is refused: exit {r.returncode}")
+    dit("90000" in sortie, "the inflated throughput figure is named in the output")
+    dit("kubernetes" in sortie, "the unsourced deployment claim is named in the output")
+
+    r = subprocess.run([sys.executable, "proof_registry.py"],
+                       cwd=gates, capture_output=True, text=True, timeout=120)
+    dit(r.returncode == 0, "the proof register of evidence/gates passes its own check")
+
+
 def verifie_tests() -> None:
-    titre(4, "Shipped unit tests")
-    try:
-        r = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "evidence/code/test_eval_regression.py"],
-            cwd=RACINE, capture_output=True, text=True, timeout=300)
-    except Exception as exc:
-        print(f"   SKIP  could not run pytest: {exc}")
-        return
-    derniere = [l for l in r.stdout.splitlines() if l.strip()]
-    dit(r.returncode == 0, derniere[-1] if derniere else "no output")
+    titre(5, "Shipped unit tests")
+    for cible, attendu in (("evidence/code/test_eval_regression.py", 34),
+                           ("evidence/gates/tests/", 11)):
+        try:
+            r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
+                               cwd=RACINE, capture_output=True, text=True, timeout=300)
+        except Exception as exc:
+            print(f"   SKIP  could not run pytest on {cible}: {exc}")
+            continue
+        derniere = [l for l in r.stdout.splitlines() if l.strip()]
+        resume = derniere[-1] if derniere else "no output"
+        dit(r.returncode == 0 and f"{attendu} passed" in resume, f"{cible}: {resume}")
 
 
 def main() -> int:
@@ -139,6 +169,7 @@ def main() -> int:
     payload = verifie_sceau()
     verifie_readme(payload)
     verifie_finetune()
+    verifie_portes()
     verifie_tests()
     print()
     if echecs:

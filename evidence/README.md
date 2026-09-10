@@ -9,8 +9,9 @@ Start here:
     python3 tools/verify.py
 
 It recomputes the seal on the reference lock, rebuilds the retrieval table of the README cell by
-cell, checks the blocked fine-tune really was blocked, and runs the shipped unit tests. 25 checks,
-no network, no corpus download, standard library plus pytest.
+cell, checks the blocked fine-tune really was blocked, runs the anti-invention gate on its example
+data, and runs the shipped unit tests. 32 checks, no network, no corpus download, standard library
+plus pytest.
 
 | Directory | What it holds |
 |---|---|
@@ -18,6 +19,7 @@ no network, no corpus download, standard library plus pytest.
 | `finetune-blocked/` | The fine-tune whose score was never read, with the runs to recompute it |
 | `code/` | The regression policy as executable code, and its tests |
 | `decisions/` | Architecture decision records |
+| `gates/` | Four tools that refuse, with example data so the refusal can be seen |
 
 ## What is not here
 
