@@ -32,7 +32,10 @@ records, and the note it carries says so in those words.
 
 No threshold was relaxed. Not the memory ceiling, not the control tolerance.
 
-**`F1_finetune_run.md`** is the full narrative, including what was tried and what it cost.
+**`F1_finetune_run.md`** is the full narrative, including what was tried and what it cost. It
+is 282 lines of French, the working language of the lab, and it is the only file here that is
+not language-neutral. If you do not read French, the four JSON files above carry the whole
+decision, and `tools/verify.py` reads them out in English.
 
 ## Recompute it yourself
 

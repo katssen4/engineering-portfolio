@@ -21,6 +21,12 @@ climbed.
 | `0010-assistant-measurement` | Measuring an assistant's answers, not only the retrieval under it |
 | `0013-tie-handling-in-evaluation` | What a tied score means in the metric, and why the choice moves results |
 
+**The paths inside them do not resolve here.** These records were written inside the bench and
+cite it: `bench/runners/compare.py`, `docs/research/...`, the seven decision records that stayed
+behind. Fifty distinct paths of that kind appear across the six files. They are left exactly as
+written, because editing a dated record to make it look tidy in a new context is the opposite of
+what a decision record is for. Read them as documents from another tree.
+
 A decision record is dated, numbered, and says what was rejected. Read `0013` first if you only
 read one: tie handling is the kind of detail that silently moves a published number, and a
 measurement either states it or hides it.

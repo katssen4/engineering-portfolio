@@ -18,6 +18,19 @@ Every command excludes vendored and generated trees: `node_modules`, `venv`, `.v
 | 4,005 lines of deployment runbook | three deployment documents of the same platform | `wc -l README_DEPLOY.md RUNBOOK_DEPLOY.md RUNBOOK_DEPLOY_v2.md` | 55 + 695 + 3255 | 2026-09-10 |
 | 149 French and 149 English articles | the published corpus of labo-llm.fr, drafts excluded | `find src/content/articles -type f \( -name '*.md' -o -name '*.mdx' \) -not -path '*/en/*' -not -path '*/prive/*' \| wc -l`, then the same for `en/` | 149 and 149 | 2026-09-09 |
 | 5,572 relevance judgements | the seven TREC judgement files of the bench | `wc -l corpus/qrels/*.trec` | 5572 | 2026-09-09 |
+| 3 banking platforms, 200,000+ lines | the provisioning platform I am technical owner of | none: this is my job, not a repository | see below | ongoing |
+
+## The one number with no command at all
+
+**3 banking platforms and more than 200,000 Cisco and Microsoft Teams lines.** No command produces
+this. It is the scope of the job I hold, and a personal repository cannot measure an employer's
+platform. It rests on my word, and the way to check it is a reference call, which I am happy to
+have made. I keep it on the page because removing it would misrepresent what I do all day, and I
+flag it here because a page about measurement should say which of its numbers are not measured.
+
+The memory figures in section 1, **5,863.5 MiB peak against a 6,000 MiB ceiling**, are not in the
+table above because they are not declared: they sit in `evidence/finetune-blocked/F1_finetune_run.md`
+and `tools/verify.py` checks that the page and that file agree.
 
 ## Two things worth knowing about these numbers
 

@@ -26,8 +26,9 @@ of this repository shows them.
     cd engineering-portfolio
     python3 tools/verify.py
 
-41 checks, no network, standard library plus a pinned pytest. GitHub runs it on every push, which
-is what the badge reports.
+45 checks, no network, standard library plus a pinned pytest. GitHub runs it on every push, which
+is what the badge reports. It refuses cleanly on a damaged artefact instead of dying on it: hand it
+a truncated run file and it names the malformed line and stops.
 
 Three families of number appear below, and they carry different weight.
 

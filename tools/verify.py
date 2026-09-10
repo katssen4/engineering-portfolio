@@ -150,16 +150,45 @@ def ndcg_at_10(rangs: list, jugements: dict) -> float:
 def verifie_recalcul() -> None:
     titre(4, "The control score, recomputed from the TREC files")
     art = DECISION.parent / "F1_artifacts"
-    jugements = collections.defaultdict(dict)
-    for ligne in (art / "B_holdout_qrels.trec").read_text(encoding="utf-8").splitlines():
-        if ligne.strip():
-            q, _, d, r = ligne.split()
-            jugements[q][d] = int(r)
+    jugements, malformees = collections.defaultdict(dict), []
+    for n, ligne in enumerate(
+            (art / "B_holdout_qrels.trec").read_text(encoding="utf-8").splitlines(), 1):
+        if not ligne.strip():
+            continue
+        champs = ligne.split()
+        if len(champs) != 4:
+            malformees.append(f"B_holdout_qrels.trec:{n}")
+            continue
+        q, _, d, r = champs
+        jugements[q][d] = int(r)
     run = collections.defaultdict(list)
-    for ligne in (art / "B_holdout_base_run.trec").read_text(encoding="utf-8").splitlines():
-        if ligne.strip():
-            q, _, d, rang, _score, _tag = ligne.split()
-            run[q].append((int(rang), d))
+    for n, ligne in enumerate(
+            (art / "B_holdout_base_run.trec").read_text(encoding="utf-8").splitlines(), 1):
+        if not ligne.strip():
+            continue
+        champs = ligne.split()
+        if len(champs) != 6:
+            malformees.append(f"B_holdout_base_run.trec:{n}")
+            continue
+        q, _, d, rang, _score, _tag = champs
+        run[q].append((int(rang), d))
+
+    # Un fichier abime doit produire un refus nomme, pas une trace Python. Sans ce garde,
+    # une troncature faisait mourir le script avant la premiere ligne de resultat, ce qui
+    # se lit comme un silence plutot que comme un echec.
+    dit(not malformees,
+        f"both TREC files parse cleanly"
+        + (f"; malformed: {', '.join(malformees[:3])}"
+           f"{' and %d more' % (len(malformees) - 3) if len(malformees) > 3 else ''}"
+           if malformees else ""))
+    if malformees:
+        dit(False, "the control score cannot be recomputed from malformed run files")
+        return
+
+    manquantes = [q for q in jugements if not run[q]]
+    dit(not manquantes,
+        f"every judged query appears in the run file"
+        + (f"; {len(manquantes)} missing" if manquantes else ""))
 
     scores = [ndcg_at_10(run[q], jugements[q]) for q in jugements]
     recalcule = round(sum(scores) / len(scores), 6)
@@ -174,6 +203,15 @@ def verifie_recalcul() -> None:
     dit(ecart > c["tolerance"],
         f"it misses the reference of {c['target']} by {ecart:.6f}, "
         f"tolerance {c['tolerance']}: the control fails on the numbers, not on the record")
+
+    # Le pic memoire est annonce dans le README et vit dans le recit du run, en francais et
+    # avec une espace fine. On confronte les deux plutot que de croire le README sur parole.
+    recit = (DECISION.parent / "F1_finetune_run.md").read_text(encoding="utf-8")
+    normalise = recit.replace("\u202f", "").replace("\u00a0", "").replace(" ", "").replace(",", ".")
+    lu = README.read_text(encoding="utf-8")
+    for chiffre, forme in (("5,863.5", "5863.5"), ("6,000", "6000")):
+        dit(forme in normalise and chiffre in lu,
+            f"the memory figure {chiffre} MiB on the page is the one in the run narrative")
 
     diag = [json.loads(l) for l in
             (art / "F1_control_diag.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
