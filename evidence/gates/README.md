@@ -48,7 +48,14 @@ alarm costs a glance and a missed invention costs credibility.
 Writes a single-column OOXML `.docx` by hand, no library, from a Markdown source, and runs eleven
 mechanical controls before writing: margins, body size, line spacing, absence of tables, absence
 of headers and footers, declared document language, contrast ratio of every text colour, no empty
-paragraph. If one fails, nothing is written.
+paragraph. If one fails, nothing is written, and `SystemExit` carries the reason.
+
+**What those eleven actually watch.** Ten of them are regression guards on the generator, not
+validations of the document you hand it: this builder never emits a table, a header or a second
+column, and its point sizes and colours come from its own profile constants, so those controls can
+only fail if a future change to the generator breaks them. That is a real job, and it is not the
+job a reader assumes. The one control that fails on input is the em dash: hand it a source carrying
+`—` and no file is written.
 
 `--controler-pdf` runs seven more on the exported PDF, including whether the extracted text starts
 with the expected name, which is how you find out that a reader will parse the document in the
@@ -67,6 +74,11 @@ identifier that does not exist, so a 200 there proves nothing. Greenhouse, Lever
 a clean 404. A prober that trusted status codes would have reported open doors that are not there.
 
 No target list ships with it: pass your own JSON file of `[name, field, ats, token]`.
+
+The count it returns is `-1` when the response does not have the shape expected for that
+system, and never `0`. A zero has to be a zero someone observed. The audit of 2026-09-11
+found this function returning `0` for an unrecognised payload, which reproduced inside the
+tool exactly the trap it was written to avoid.
 
 ## `proof_registry.py`
 

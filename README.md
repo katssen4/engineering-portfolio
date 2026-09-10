@@ -14,7 +14,7 @@ examples are synthetic and labelled as such.
 |---|---|---|
 | Knowledge platform | Hybrid retrieval over enterprise documents, per-connector access control, agent access over MCP | Its retrieval engine, measured in section 1 |
 | Evaluation bench | IR measurement under a written protocol, sealed corpus, regression gate | Most of `evidence/`, and the code in `evidence/code/` |
-| Agent harness | Scoped development agents across five model backends, chained audit log | None yet. Section 2 says so |
+| Agent harness | Scoped development agents across five model backends, chained audit log | Write-scope guard and audit chain, shipped as reduced extracts in `evidence/agent-governance/` |
 | labo-llm.fr | Bilingual technical corpus on language models | The live site, 149 articles in each language |
 
 Three of those four are software products, and five more exist, so eight in all. Sizes and the
@@ -37,8 +37,9 @@ and it names the malformed line and stops, instead of dying on a stack trace.
 
 Three families of number appear below, and they carry different weight.
 
-*Recomputed.* The control score of the fine-tune. The script reads the two TREC run files and the
-judgements, computes nDCG@10 itself, and gets 0.575258. No part of that comes from a decision file.
+*Recomputed.* The control score of the fine-tune. The script reads the positive-control run and
+the held-out judgements, computes nDCG@10 itself, and gets 0.575258. No part of that comes from a
+decision file, and it never touches the treated run.
 
 *Consistency-checked.* The retrieval table. Its cells are compared against the sealed lock, so a
 drifted page fails the check. The runs behind those numbers are not shipped, so this proves the
@@ -49,7 +50,7 @@ anyone who edits the lock can recompute it.
 and date in [`evidence/declared-metrics.md`](evidence/declared-metrics.md). You can read the
 method. You cannot run it against a system you do not have.
 
-The 75 shipped unit tests run in the same pass, and the script finishes by counting its own checks
+The 97 shipped unit tests run in the same pass, and the script finishes by counting its own checks
 against the numbers printed on this page.
 
 ---
@@ -70,8 +71,9 @@ These are scores on a public corpus of software tickets, with these judgements. 
 about yours. The gain is uneven: 0.062 on Spark against 0.032 on Cassandra, on collections of very
 different sizes, and neither figure carries a confidence interval. What transfers is the protocol.
 
-What makes the protocol worth showing. The corpus is sealed with SHA-256 manifests, and each of
-the 5,572 relevance judgements carries a provenance record saying where it came from. The reference
+What makes the protocol worth showing. The corpus is sealed with SHA-256 manifests, and the 5,572
+relevance judgements come with seven provenance records, one per judgement set, each naming the
+source dataset, how a judgement was derived and what was excluded. The reference
 is 18 engine configurations frozen in one file with an integrity hash. The regression policy was
 written before any result: primary metric `nDCG@10`, trigger delta 0.01, paired t-test, threshold
 0.05, and a failure declared only when a drop clears the delta **and** reaches significance.
@@ -111,28 +113,36 @@ avoid.
 
 ---
 
-## 2. Governing agents that write code, declared and not shipped
+## 2. Governing agents that write code
 
-**Read this section as a claim, because that is what it currently is.** No file here demonstrates
-it. The evidence layer for it is planned and absent, and calling it proven would contradict the
-rest of the page.
+Two mechanisms from my development harness are shipped and tested in
+[`evidence/agent-governance/`](evidence/agent-governance/), as reduced extracts. They are not the
+harness, which is 32,159 lines across 126 Python files.
 
-I develop through a harness I wrote, because I wanted answers to three questions before letting
-agents near a repository.
+**What may the agent write.** Every worker prompt declares the paths it may write. A guard compares
+that declaration to the staged files before the commit and exits 1 on anything outside. It exits 2
+whenever the perimeter cannot be established: no scope block, several of them, a structured scope
+with no writing section, or an enumeration of staged files that failed. Not being able to determine
+a perimeter never grants one.
 
-**What is the agent allowed to touch.** Per-agent write scopes, enforced by a git `pre-commit` hook
-that refuses the commit.
+    python3 scope_guard.py --prompt example/prompt_avec_scope.md --staged src/auth/session.py
 
-**How do I prove afterwards what it did.** An append-only audit log chained with HMAC-SHA256, a
-chain verification function, and a guard that refuses to run in a mode where the chain would not be
-tamper-evident. The key lives on the workstation, so the chain is evidence against silent
-corruption and against a careless agent, not against me.
+    [scope_guard] COMMIT REFUSE : 1 fichier(s) hors perimetre
+        src/auth/session.py
 
-**What happens if one vendor disappears.** A dispatch layer across five model backends, and a
-commit broker that serialises the git writes of parallel agents so `.git/index.lock` collisions
-cannot occur.
+**What can be checked afterwards.** An application-level append-only writer, chaining records by
+SHA-256 and authenticating each with HMAC-SHA256 under an exclusive lock. Modifying or reordering
+records, or deleting one that still has a successor, breaks the chain and `verify_chain` names the
+record. Truncating the tail does not: a valid prefix is a valid chain, and detecting that needs a
+commitment to the expected head stored outside the file. That limit ships as a passing test, along
+with the fact that the key sits on the same workstation as the agents, so the chain is evidence of
+integrity and not of innocence.
 
-This governs development agents on a workstation. It is no part of a production inference
+**What is declared and not shipped.** The dispatch layer across five model backends, the commit
+broker that serialises parallel git writes, the nineteen domain validators encoding my architecture
+rules, and the doctrine documents. No file here demonstrates any of them.
+
+All of this governs development agents on a workstation. It is no part of a production inference
 platform, and I do not present it as one.
 
 ---
@@ -166,7 +176,10 @@ deleting a section of caveats is invisible to it. Both cases sit in
 means improving the gate breaks them and forces this paragraph to change with the code.
 
 The other three are shorter to describe. A document builder runs eleven layout controls before
-writing a byte, and writes nothing when one fails. A prober calls the live endpoints of six
+writing a byte, and writes nothing when one fails. Worth being exact about what those controls
+watch: ten of them guard the generator against itself, since it never emits a table, a header or a
+second column, and its font sizes and contrast ratios come from its own constants. Only the em-dash
+control can fail on the input, and it does, with the file unwritten. A prober calls the live endpoints of six
 applicant tracking systems, because one of them answers 200 on identifiers that do not exist. A
 proof register checks that its own claims still point at tests that exist and strings still present
 in the code.
@@ -197,9 +210,8 @@ its source, hypotheses are marked as such, and negative results are archived lik
 - **No production traffic.** One application of mine is live, with two users. No on-call, no
   incident load, no multi-tenant scale of my own.
 - **No external client reference.** My delivery record sits inside one employer and on my own time.
-- **No evidence for the dispatch layer or the commit broker.** The write-scope guard and the
-  audit chain are shipped and tested; those two are described only, and section 2 says which is
-  which.
+- **No evidence for the dispatch layer, the commit broker, or the domain validators.** The
+  write-scope guard and the audit chain are shipped and tested. The other three are described only.
 
 ---
 

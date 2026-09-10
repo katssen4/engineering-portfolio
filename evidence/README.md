@@ -21,7 +21,7 @@ script and stated in the root README only, so it cannot drift between two docume
 | Directory | What it holds |
 |---|---|
 | `retrieval/` | The sealed reference lock, and where each set of relevance judgements came from |
-| `finetune-blocked/` | The fine-tune whose score was never read, with the runs to recompute it |
+| `finetune-blocked/` | The blocked fine-tune, its treated run, and the positive-control artefacts `verify.py` uses to recompute the failed control |
 | `code/` | The regression policy as executable code, and its tests |
 | `decisions/` | Architecture decision records |
 | `declared-metrics.md` | The declared numbers, each with the command behind it |

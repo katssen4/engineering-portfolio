@@ -1,4 +1,4 @@
-# W3 — Ajouter le connecteur de métriques
+# W3 : ajouter le connecteur de métriques
 
 Tu ajoutes un connecteur de métriques au service d'ingestion, avec ses tests.
 

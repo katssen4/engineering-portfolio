@@ -64,6 +64,12 @@ def lire_registre(texte: str) -> tuple[list[dict], list[str]]:
     que le compteur bouge."""
     enonces, malformees = [], []
     for brut in texte.splitlines():
+        # Une puce sans crochets etait ignoree sans un mot. Le docstring promet pourtant
+        # qu'un enonce sans categorie fait echouer le controle : il passait au travers,
+        # et un enonce ecrit sans categorie disparaissait du registre en silence.
+        if brut.startswith("- ") and not brut.startswith("- ["):
+            malformees.append(brut.strip())
+            continue
         if not brut.startswith("- ["):
             continue
         if (m := LIGNE.match(brut)):

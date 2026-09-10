@@ -32,16 +32,28 @@ PATRONS = {
 
 
 def compter(ats: str, donnee) -> int:
-    """Nombre d'offres dans une reponse, selon la forme propre a chaque systeme."""
+    """Nombre d'offres dans une reponse, ou -1 quand la forme n'est pas celle attendue.
+
+    -1 veut dire « je n'ai pas su compter », et jamais « zero ». La distinction est la
+    raison d'etre de ce module : SmartRecruiters rend 200 avec `totalFound: 0` sur un
+    identifiant inexistant, donc un zero doit toujours etre un zero observe. Une reponse
+    dont la forme a change se lisait « zero offre » ici meme, ce qui reproduisait le piege
+    a l'interieur de l'outil ecrit pour l'eviter. Trouve a l'audit du 2026-09-11.
+    """
     try:
         if ats in ("greenhouse", "ashby", "workable"):
-            return len(donnee.get("jobs", []))
+            jobs = donnee.get("jobs")
+            return len(jobs) if isinstance(jobs, list) else -1
         if ats == "lever":
-            return len(donnee)
+            return len(donnee) if isinstance(donnee, list) else -1
         if ats == "smartrecruiters":
-            return int(donnee.get("totalFound", len(donnee.get("content", []))))
+            if "totalFound" in donnee:
+                return int(donnee["totalFound"])
+            contenu = donnee.get("content")
+            return len(contenu) if isinstance(contenu, list) else -1
         if ats == "recruitee":
-            return len(donnee.get("offers", []))
+            offres = donnee.get("offers")
+            return len(offres) if isinstance(offres, list) else -1
     except (AttributeError, TypeError, ValueError):
         return -1
     return -1

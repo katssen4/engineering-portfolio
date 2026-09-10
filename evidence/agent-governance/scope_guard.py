@@ -35,19 +35,35 @@ _SKIP_PREFIXES = ("HORS SCOPE", "INTERDIT", "NOTE", "ATTENTION", "EXCLUS")
 # Un perimetre peut nommer un fichier dont le nom n'est pas connu a l'avance.
 _PLACEHOLDER_PATTERN = re.compile(r"<(?:TS|TIMESTAMP|DATE|HASH|SESSION|RUN|ID)>", re.IGNORECASE)
 
+# Sections d'un bloc <scope> structure. Leur seule presence interdit le repli global.
+_SECTIONS_CONNUES = r"<(?:lecture|interdit|exclus|[ÉéEe]criture)\b"
+
 EXIT_CONFORME = 0
 EXIT_DEPASSEMENT = 1
 EXIT_SANS_PERIMETRE = 2
 
 
+class PerimetreAmbiguError(RuntimeError):
+    """Le prompt porte plusieurs blocs <scope> et rien ne dit lequel fait foi.
+
+    Choisir le plus long etait une heuristique : une duplication de prompt ou un ancien
+    perimetre laisse en place suffisait a designer le mauvais. Pour un controle de
+    permission, une ambiguite doit refuser.
+    """
+
+
 def _extract_scope_block(content: str) -> str | None:
-    """Contenu du bloc <scope>...</scope>, le plus long si plusieurs."""
+    """Contenu de l'unique bloc <scope>...</scope>. Leve si le prompt en porte plusieurs."""
     strict = list(re.finditer(r"^<scope>(.*?)^</scope>", content, re.DOTALL | re.MULTILINE))
+    if len(strict) > 1:
+        raise PerimetreAmbiguError(f"{len(strict)} blocs <scope> dans le prompt")
     if strict:
-        return max(strict, key=lambda m: len(m.group(1))).group(1)
+        return strict[0].group(1)
     inline = list(re.finditer(r"<scope>(.*?)</scope>", content, re.DOTALL | re.IGNORECASE))
+    if len(inline) > 1:
+        raise PerimetreAmbiguError(f"{len(inline)} blocs <scope> dans le prompt")
     if inline:
-        return max(inline, key=lambda m: len(m.group(1))).group(1)
+        return inline[0].group(1)
     return None
 
 
@@ -108,7 +124,10 @@ def _parse_path_patterns(section: str) -> list[str]:
 def extract_scope_patterns(prompt_path: str | Path) -> tuple[list[str], str]:
     """Rend (chemins autorises, niveau d'extraction). Liste vide = aucun perimetre."""
     contenu = Path(prompt_path).read_text(encoding="utf-8")
-    bloc = _extract_scope_block(contenu)
+    try:
+        bloc = _extract_scope_block(contenu)
+    except PerimetreAmbiguError:
+        return [], "perimetre-ambigu"
     if bloc is None:
         return [], "no-scope"
     section = _extract_xml_writing_section(bloc)
@@ -117,34 +136,69 @@ def extract_scope_patterns(prompt_path: str | Path) -> tuple[list[str], str]:
     section = _extract_regex_writing_section(bloc)
     if section is not None:
         return _parse_path_patterns(section), "xml-regex"
-    # Le repli sur le bloc entier ne s'applique QUE si aucune sous-balise <écriture>
-    # n'existe. Sinon on lirait <lecture> et <interdit> comme des autorisations.
+    # Le repli sur le bloc entier ne s'applique QUE si le bloc n'est pas structure du tout.
+    # Des qu'une section connue apparait, lire le bloc entier reviendrait a promouvoir les
+    # chemins de <lecture> et de <interdit> en autorisations d'ecriture. Une revue exterieure
+    # a montre le 2026-09-11 qu'un scope portant <lecture> et <interdit> sans <écriture>
+    # passait par ce chemin : `src/auth/` devenait ecrivable alors qu'il etait en lecture.
     if re.search(r"<[ÉéEe]criture", bloc, re.IGNORECASE):
         return [], "ecriture-illisible"
+    if re.search(_SECTIONS_CONNUES, bloc, re.IGNORECASE):
+        return [], "scope-structure-sans-section-ecriture"
     direct = _parse_path_patterns(bloc)
     if direct:
         return direct, "xml-direct"
     return [], "no-writing-section"
 
 
+def _regex_de_placeholder(pattern: str) -> re.Pattern:
+    """Compile un motif a placeholder en regex ou le placeholder ne franchit pas un `/`.
+
+    `fnmatch` traduit `*` en « n'importe quoi », separateurs compris : le perimetre
+    `reports/W3_<TS>.json` acceptait alors `reports/W3_x/nested/any.json`. Un placeholder
+    designe un fragment de nom, pas une arborescence.
+    """
+    morceaux = _PLACEHOLDER_PATTERN.split(pattern)
+    return re.compile("[^/]*".join(re.escape(m) for m in morceaux))
+
+
 def file_matches_scope(filepath: str, patterns: list[str]) -> bool:
-    """Chemin exact, prefixe de repertoire, ou glob apres expansion des placeholders."""
+    """Chemin exact, prefixe de repertoire, glob explicite, ou placeholder dans son segment."""
     for pattern in patterns:
         norme = pattern.rstrip("/")
         if filepath == norme or filepath.startswith(norme + "/"):
             return True
-        etendu = _PLACEHOLDER_PATTERN.sub("*", norme)
-        if "*" in etendu and (fnmatch.fnmatch(filepath, etendu)
-                              or fnmatch.fnmatch(filepath, etendu + "/*")):
+        if _PLACEHOLDER_PATTERN.search(norme):
+            motif = _regex_de_placeholder(norme)
+            if motif.fullmatch(filepath) or motif.fullmatch(filepath.split("/")[0]):
+                return True
+            continue
+        if "*" in norme and (fnmatch.fnmatch(filepath, norme)
+                             or fnmatch.fnmatch(filepath, norme + "/*")):
             return True
     return False
 
 
+class StagedFilesUnavailableError(RuntimeError):
+    """L'ensemble des fichiers stages n'a pas pu etre etabli.
+
+    Distinct d'un ensemble vide observe avec succes. Sans cette distinction, un `git diff`
+    qui echoue rendait une liste vide, et le garde declarait conforme un commit qu'il
+    n'avait jamais inspecte.
+    """
+
+
 def get_staged_files(repo: Path | None = None) -> list[str]:
     """Fichiers reellement dans l'index. Les modifications hors index ne comptent pas :
-    elles appartiennent souvent a un autre agent qui travaille en parallele."""
+    elles appartiennent souvent a un autre agent qui travaille en parallele.
+
+    Leve `StagedFilesUnavailableError` si l'enumeration echoue.
+    """
     r = subprocess.run(["git", "diff", "--cached", "--name-only"],
                        capture_output=True, text=True, cwd=repo or Path.cwd())
+    if r.returncode != 0:
+        raise StagedFilesUnavailableError(
+            f"git diff --cached a rendu {r.returncode} : {r.stderr.strip() or 'sans message'}")
     return [l.strip() for l in r.stdout.splitlines() if l.strip()]
 
 
@@ -168,11 +222,18 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_SANS_PERIMETRE
     prompt = args[args.index("--prompt") + 1]
     if "--staged-from-git" in args:
-        staged = get_staged_files()
+        try:
+            staged = get_staged_files()
+        except StagedFilesUnavailableError as exc:
+            print(f"[scope_guard] REFUS : {exc}", file=sys.stderr)
+            return EXIT_SANS_PERIMETRE
     elif "--staged" in args:
         staged = [a for a in args[args.index("--staged") + 1:] if not a.startswith("--")]
     else:
-        staged = []
+        # Ne pas savoir quoi controler n'est pas la meme chose que n'avoir rien a controler.
+        print("[scope_guard] REFUS : aucune source de fichiers stages. "
+              "Passer --staged <f...> ou --staged-from-git.", file=sys.stderr)
+        return EXIT_SANS_PERIMETRE
     code, hors, niveau = run_check(prompt, staged)
     if code == EXIT_SANS_PERIMETRE:
         print(f"[scope_guard] REFUS : aucun perimetre d'ecriture declare ({niveau})", file=sys.stderr)

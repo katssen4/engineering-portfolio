@@ -21,7 +21,7 @@ import audit_chain as ac  # noqa: E402
 @pytest.fixture()
 def cle(tmp_path, monkeypatch):
     k = tmp_path / "hmac.key"
-    k.write_bytes(b"une cle de test, 32 octets ....")
+    k.write_bytes(b"une cle de test de trente-deux octets pile.")  # >= 32
     monkeypatch.setenv("AUDIT_HMAC_KEY_PATH", str(k))
     monkeypatch.setenv("AUDIT_HMAC_STRICT", "1")
     return k
@@ -137,3 +137,109 @@ def test_en_mode_degrade_une_modification_passe_le_hmac(tmp_path, journal, monke
                                 for e in entrees) + "\n", encoding="utf-8")
     n_valides, anomalies = ac.verify_chain(journal)
     assert anomalies == [] and n_valides == 2
+
+
+# ── Les chemins fail-open trouves par la revue du 2026-09-11 ──────────────────
+
+
+def test_sans_verrou_l_ecriture_est_refusee(cle, journal, monkeypatch):
+    """Une cle presente ne compense pas un verrou absent : ce sont deux preconditions
+    distinctes. Sans section critique, deux ecrivains lisent le meme prev_hash et la
+    chaine diverge. Le module avalait l'echec de flock et ecrivait quand meme."""
+    monkeypatch.setattr(ac, "_HAS_FCNTL", False)
+    with pytest.raises(ac.AuditLockUnavailableError):
+        ac.append_event("agent.write", {}, session="S1", events_path=journal)
+    assert not journal.exists() or journal.read_text(encoding="utf-8") == ""
+
+
+def test_un_verrou_impossible_a_prendre_refuse(cle, journal, monkeypatch):
+    def refuse(*a, **k):
+        raise OSError("verrou indisponible")
+    monkeypatch.setattr(ac.fcntl, "flock", refuse)
+    with pytest.raises(ac.AuditLockUnavailableError):
+        ac.append_event("agent.write", {}, session="S1", events_path=journal)
+
+
+def test_une_queue_corrompue_refuse_un_nouvel_append(cle, journal):
+    """Un journal dont la derniere ligne est illisible a une histoire inconnue. Le module
+    lisait None, le confondait avec un fichier vide, et repartait d'une genese."""
+    ac.append_event("agent.write", {"n": 0}, session="S1", events_path=journal)
+    journal.write_bytes(journal.read_bytes() + b'{"tronque": ')
+    with pytest.raises(ac.AuditTrailCorruptError):
+        ac.append_event("agent.write", {"n": 1}, session="S1", events_path=journal)
+    assert len(journal.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_un_fsync_qui_echoue_est_remonte(cle, journal, monkeypatch):
+    """Le README compte la durabilite parmi ses garanties. Une garantie dont l'echec est
+    avale n'en est pas une."""
+    def refuse(_fd):
+        raise OSError("disque plein")
+    monkeypatch.setattr(ac.os, "fsync", refuse)
+    with pytest.raises(ac.AuditDurabilityError):
+        ac.append_event("agent.write", {}, session="S1", events_path=journal)
+
+
+def test_deux_ecrivains_concurrents_produisent_une_chaine_lineaire(cle, journal):
+    """La garantie de concurrence etait affirmee et jamais exercee. Quatre processus,
+    dix ajouts chacun : quarante entrees, une seule chaine, zero anomalie."""
+    import multiprocessing as mp
+
+    def ajoute(chemin, cle_path, n):
+        import os as _os, sys as _sys
+        _os.environ["AUDIT_HMAC_KEY_PATH"] = str(cle_path)
+        _os.environ["AUDIT_HMAC_STRICT"] = "1"
+        _sys.path.insert(0, str(Path(chemin).parent.parent))
+        import audit_chain as _ac
+        for i in range(10):
+            _ac.append_event("agent.write", {"i": i}, session="S1", events_path=Path(chemin))
+
+    procs = [mp.Process(target=ajoute, args=(str(journal), str(cle), i)) for i in range(4)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=60)
+
+    entrees = lignes(journal)
+    assert len(entrees) == 40, f"{len(entrees)} entrees au lieu de 40"
+    n_valides, anomalies = ac.verify_chain(journal)
+    assert anomalies == [], f"chaine rompue : {anomalies}"
+    assert n_valides == 40
+    assert len({e["event_id"] for e in entrees}) == 40
+
+
+# ── Limite connue, livree comme test qui passe ────────────────────────────────
+
+
+def test_limite_supprimer_la_fin_du_journal_reste_indetectable(cle, journal):
+    """LIMITE CONNUE ET STRUCTURELLE. Un prefixe de chaine valide reste une chaine valide.
+
+    Supprimer une entree du milieu casse le lien de sa suivante et se voit. Supprimer les
+    dernieres n'en casse aucun : rien dans le fichier ne dit qu'elles ont existe. C'est la
+    limite d'une chaine de hachage sans engagement externe sur la tete attendue, et c'est
+    aussi l'attaque la plus probable sur un journal d'audit, puisqu'elle efface les
+    dernieres actions. La fermer demande une ancre hors du fichier.
+    """
+    for i in range(5):
+        ac.append_event("agent.write", {"i": i}, session="S1", events_path=journal)
+    l = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+    journal.write_text("".join(l[:3]), encoding="utf-8")
+    n_valides, anomalies = ac.verify_chain(journal)
+    assert (n_valides, anomalies) == (3, [])
+
+
+def test_limite_un_journal_absent_se_lit_comme_propre(cle, journal):
+    """LIMITE CONNUE, meme cause. Sans compteur attendu, un journal absent est
+    indiscernable d'un journal jamais ecrit."""
+    assert ac.verify_chain(journal) == (0, [])
+
+
+def test_une_cle_trop_courte_est_refusee(tmp_path, journal, monkeypatch):
+    """Une cle d'un octet se devine, et un journal signe avec une cle devinable n'est pas
+    opposable. Le module acceptait n'importe quelle taille."""
+    k = tmp_path / "courte.key"
+    k.write_bytes(b"x")
+    monkeypatch.setenv("AUDIT_HMAC_KEY_PATH", str(k))
+    monkeypatch.setenv("AUDIT_HMAC_STRICT", "1")
+    with pytest.raises(ac.HMACKeyMissingError):
+        ac.append_event("agent.start", {}, session="S1", events_path=journal)

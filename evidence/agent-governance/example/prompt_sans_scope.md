@@ -1,4 +1,4 @@
-# W4 — Corriger le bogue de pagination
+# W4 : corriger le bogue de pagination
 
 Le tableau saute la dernière page quand le total est un multiple exact de la taille de
 page. Corrige-le et ajoute un test.

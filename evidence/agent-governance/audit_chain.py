@@ -41,6 +41,31 @@ except ImportError:
 
 _GENESIS_PREV_HASH = "0" * 64
 
+# Une cle plus courte que la sortie de SHA-256 affaiblit le HMAC sans le dire.
+_TAILLE_CLE_MINIMALE = 32
+
+
+class AuditLockUnavailableError(RuntimeError):
+    """Le verrou exclusif n'a pas pu etre pris, donc la section critique n'est pas garantie.
+
+    Une cle presente ne compense pas un verrou absent : ce sont deux preconditions
+    distinctes. Sans verrou, deux ecrivains concurrents lisent le meme prev_hash et la
+    chaine diverge. Refuser est le seul comportement coherent avec le reste du module.
+    """
+
+
+class AuditTrailCorruptError(RuntimeError):
+    """La derniere ligne du journal n'est pas du JSON valide.
+
+    Le fichier n'est pas vide, donc il a une histoire, mais cette histoire est illisible :
+    ecriture interrompue, corruption disque, retouche manuelle. Etendre un journal dans cet
+    etat reviendrait a repartir d'une genese comme si rien n'avait precede.
+    """
+
+
+class AuditDurabilityError(RuntimeError):
+    """L'ecriture n'a pas pu etre rendue durable, donc l'appelant ne doit pas la croire ecrite."""
+
 
 class HMACKeyMissingError(RuntimeError):
     """Levée en mode strict (fail-closed) quand la clé HMAC est absente.
@@ -94,7 +119,13 @@ def _load_key_or_none() -> bytes | None:
             file=sys.stderr,
         )
         return None
-    return key_path.read_bytes()
+    cle = key_path.read_bytes()
+    if len(cle) < _TAILLE_CLE_MINIMALE:
+        raise HMACKeyMissingError(
+            f"cle HMAC de {len(cle)} octet(s) dans {key_path} : en dessous du minimum de "
+            f"{_TAILLE_CLE_MINIMALE}. Une cle courte se devine, et un journal signe avec une "
+            f"cle devinable n'est pas opposable.")
+    return cle
 
 
 def _canonical_payload(record: dict[str, Any]) -> bytes:
@@ -130,6 +161,21 @@ def _read_last_record(path: Path) -> dict[str, Any] | None:
         return None
     with open(path, "rb") as f:
         return _read_last_record_from_handle(f)
+
+
+def _derniere_ligne_brute(handle: Any) -> bytes | None:
+    """Derniere ligne non vide, sans tenter de la decoder. Rend None si le fichier est vide.
+
+    Sert a distinguer « journal vide » de « journal dont la queue est illisible », deux
+    situations que `_read_last_record_from_handle` confondait en rendant None pour les deux.
+    """
+    handle.seek(0)
+    derniere: bytes | None = None
+    for brut in handle:
+        if brut.strip():
+            derniere = brut.strip()
+    handle.seek(0, os.SEEK_END)
+    return derniere
 
 
 def _read_last_record_from_handle(handle: Any) -> dict[str, Any] | None:
@@ -184,13 +230,22 @@ def append_event(
     # Verrou pris AVANT _read_last_record_from_handle → 2 writers concurrents ne
     # peuvent plus lire le même prev_hash puis diverger.
     with open(target, "a+b") as f:
-        if _HAS_FCNTL:
-            try:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            except OSError:
-                pass
+        if not _HAS_FCNTL:
+            raise AuditLockUnavailableError(
+                "verrouillage de fichier indisponible sur cette plateforme : refus d'ecrire "
+                "un journal multi-ecrivains sans section critique")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            raise AuditLockUnavailableError(
+                f"verrou exclusif impossible a prendre : {exc}") from exc
 
+        derniere_brute = _derniere_ligne_brute(f)
         last_record = _read_last_record_from_handle(f)
+        if derniere_brute is not None and last_record is None:
+            raise AuditTrailCorruptError(
+                "la derniere ligne du journal n'est pas du JSON valide : refus d'etendre "
+                "un journal dont l'etat precedent est inconnu")
         prev_hash = (
             _record_hash(last_record) if last_record else _GENESIS_PREV_HASH
         )
@@ -218,8 +273,9 @@ def append_event(
         f.flush()
         try:
             os.fsync(f.fileno())
-        except OSError:
-            pass
+        except OSError as exc:
+            raise AuditDurabilityError(
+                f"fsync a echoue, l'ajout n'est pas garanti durable : {exc}") from exc
         # flock libéré à la fermeture du handle (sortie du with).
     return record["hmac"]
 

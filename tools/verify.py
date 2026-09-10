@@ -268,13 +268,16 @@ def verifie_tests() -> None:
         dit(False, "pytest is not installed. Run: pip install pytest")
         return
     for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
-                           ("evidence/gates/tests/", 24),
-                           ("evidence/agent-governance/tests/", 16)):
+                           ("evidence/gates/tests/", 31),
+                           ("evidence/agent-governance/tests/", 31)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
         except Exception as exc:
-            print(f"   SKIP  could not run pytest on {cible}: {exc}")
+            # Un groupe de tests qu'on ne peut pas lancer n'est pas un groupe qui passe.
+            # Le SKIP precedent laissait le verificateur conclure malgre une suite non
+            # executee, ce qui est un fail-open de l'outil de preuve lui-meme.
+            dit(False, f"could not run pytest on {cible}: {exc}")
             continue
         derniere = [l for l in r.stdout.splitlines() if l.strip()]
         resume = derniere[-1] if derniere else "no output"
@@ -352,16 +355,35 @@ def verifie_comptes() -> None:
     dit(attendu in texte, f"README states \"{attendu}\"")
 
 
+def sans_trace(nom: str, fonction, *args):
+    """Execute une section et convertit toute exception en echec nomme.
+
+    Un verificateur qui meurt sur une trace Python ressemble a un verificateur silencieux :
+    la trace sort avant la premiere ligne de resultat, et un lecteur presse la lit comme une
+    erreur d'environnement. Une piece manquante ou abimee doit produire un ECHEC nomme, pas
+    un arret. Trouve a l'audit du 2026-09-11 sur quatre artefacts differents.
+    """
+    try:
+        return fonction(*args)
+    except Exception as exc:
+        print(f"\n!  {nom} could not run")
+        dit(False, f"{type(exc).__name__}: {exc}")
+        return None
+
+
 def main() -> int:
     print("Verifying the experimental results this repository prints.")
-    payload = verifie_sceau()
-    verifie_readme(payload)
-    verifie_finetune()
-    verifie_recalcul()
-    verifie_portes()
-    verifie_gouvernance()
-    verifie_tests()
-    verifie_comptes()
+    payload = sans_trace("the reference lock", verifie_sceau)
+    if payload is not None:
+        sans_trace("the retrieval table", verifie_readme, payload)
+    else:
+        dit(False, "the retrieval table cannot be checked without the reference lock")
+    sans_trace("the fine-tune decision", verifie_finetune)
+    sans_trace("the recomputed control", verifie_recalcul)
+    sans_trace("the gates", verifie_portes)
+    sans_trace("the governance mechanisms", verifie_gouvernance)
+    sans_trace("the unit tests", verifie_tests)
+    sans_trace("the self-count", verifie_comptes)
     print()
     if echecs:
         print(f"{len(echecs)} check(s) failed.")

@@ -92,3 +92,28 @@ def test_le_registre_porte_ses_manques_declares() -> None:
     categories = [e["categorie"] for e in enonces]
     assert categories.count("KNOWN GAP") >= 2
     assert "DESIGN" in categories
+
+
+def test_une_puce_sans_categorie_est_signalee():
+    """FAIL-OPEN trouve a l'audit du 2026-09-11. Le lecteur ne regardait que les lignes
+    commencant par « - [ » : un enonce ecrit sans categorie disparaissait du registre sans
+    un mot, alors que le docstring promet qu'il fait echouer le controle."""
+    enonces, malformees = preuves.lire_registre("- un enonce sans crochets\n")
+    assert enonces == []
+    assert malformees == ["- un enonce sans crochets"]
+
+
+def test_un_registre_absent_fait_echouer():
+    """Ne pas trouver le registre n'est pas la meme chose que trouver un registre sain."""
+    import tempfile, pathlib
+    ancien = preuves.REGISTRE
+    try:
+        preuves.REGISTRE = pathlib.Path(tempfile.mkdtemp()) / "absent.md"
+        import sys
+        sauve, sys.argv = sys.argv, ["proof_registry.py"]
+        try:
+            assert preuves.main() == 1
+        finally:
+            sys.argv = sauve
+    finally:
+        preuves.REGISTRE = ancien
