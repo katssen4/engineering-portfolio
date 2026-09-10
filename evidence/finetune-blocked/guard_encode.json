@@ -1,0 +1,10 @@
+{
+  "phase": "encode",
+  "branch": "STOP-VRAM-ENCODE",
+  "used_mib": 0,
+  "total_mib": 8151,
+  "free_mib": 8151,
+  "threshold_mib": 1600,
+  "passed": true,
+  "ts": "2026-09-04T07:57:47+00:00"
+}

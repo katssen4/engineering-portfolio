@@ -1,0 +1,61 @@
+{
+  "collection_id": "C",
+  "dataset_id": "cqadupstack-unix",
+  "method": "native_links",
+  "method_detail": "BEIR edition of CQADupStack native StackExchange 'duplicate of' moderator links (BeIR/cqadupstack-qrels unix/test.tsv). Query = a held-out question; relevant = its native duplicate question(s) present in the corpus (binary grade=1). qrels restricted to the 150 selected held-out queries -> 239 rows (avg 1.59 rel/query). No closure/union-find needed (links are already question->duplicate-question pairs); self excluded.",
+  "grade_scale": "binary",
+  "pool_depth": null,
+  "judge": null,
+  "annotator": "upstream (StackExchange moderators 'duplicate of' links, via Hoogeveen et al. CQADupStack + BEIR repackaging)",
+  "qrels_version": "1.0",
+  "construction_date": "2026-06-25",
+  "comparability_class": "native",
+  "cross_comparable_to_B_native": true,
+  "cross_comparable_to_A_llm_judge": false,
+  "metric": "nDCG@10",
+  "source": {
+    "url": "https://huggingface.co/datasets/BeIR/cqadupstack",
+    "source_revision": "BeIR/cqadupstack@e84b7220ce5a4e6c49aeb568983b0ec5a7584c2c + BeIR/cqadupstack-qrels@13595a9f221256a9a21e91c8b0fed3563382b6a7",
+    "license": "CC BY-SA 4.0",
+    "license_verified_live": "2026-06-25 (both HF repos, at ingest)",
+    "citation": "Hoogeveen, Verspoor & Baldwin 2015/2016 (ADCS), 'CQADupStack: A Benchmark Data Set for Community Question-Answering Research'; Sep-2014 StackExchange dump; BEIR repackaging Thakur et al. 2021",
+    "subforum_slice": "unix",
+    "subforum_rationale": "the most ITSM-adjacent IT/tech subforum (nearest to A's IT support tickets); adapter is slice-agnostic — re-fetch another subforum into corpus/raw/C_cqadupstack/ + re-run to re-slice (a thinker decision). See docs/research/C_source_duediligence.md."
+  },
+  "query_selection": {
+    "n_queries": 150,
+    "seed": 13,
+    "drawn_from": "the 1072 JUDGEABLE queries (a query is judgeable iff it has >=1 native-relevant doc present in the corpus; all 1072 judgeable -> 100% coverage, 0 missing)",
+    "full_rebuild": "--n-queries 0 rebuilds with ALL 1072 judgeable queries",
+    "qrels_shape": "TREC `qid 0 docid 1` (same shape as B native)"
+  },
+  "egress_ref": {
+    "log": "security/egress_log.jsonl",
+    "entry_date": "2026-06-25T01:07:00Z",
+    "operation": "full ingest fetch BEIR CQADupStack (unix subforum)",
+    "direction": "in",
+    "data_class": "PUBLIC",
+    "bytes_or_rows": 25820182,
+    "operator_authorized": true
+  },
+  "files": {
+    "corpus": "corpus/processed/C_cqadupstack_corpus.jsonl (47382 docs, regenerable:true, gitignored)",
+    "queries": "corpus/queries/C_cqadupstack_queries.jsonl (150 queries, regenerable:true, gitignored)",
+    "qrels": "corpus/qrels/C_cqadupstack_qrels.trec (239 rows, regenerable:false, committed, sha256=e2b2289b3e3e2712bd2430484e97d337e124b3d9d6c3bb72385415469b3c39c5, HARD hash-verified)"
+  },
+  "counts": {
+    "corpus_docs": 47382,
+    "queries_selected": 150,
+    "judgeable_queries_total": 1072,
+    "qrels_rows": 239,
+    "avg_relevant_per_query": 1.59,
+    "qrels_coverage_pct": 100.0,
+    "native_dup_links_total": 1693
+  },
+  "calibration": "native duplicate-detection / known-item bench (StackExchange moderator 'duplicate of' links). comparability_class=native -> CROSS-COMPARABLE to B native (same family), NOT to A llm_judge. DISCRIMINANCE (the A lesson): corpus median 613 chars / 101 words (vs A's hollowed 72 chars / 11 words) + normalized-collision 0.01% (4 rows / 2 clusters, vs A's 34%) -> DISCRIMINANT (strongly). Full acquisition report: docs/research/C_acquisition.md.",
+  "seal": {
+    "lot": "S17 W3_SEAL_C (J1.4-analogue)",
+    "mechanism": "manifest-hash seal: sealed:true + verify_manifest_hashes(m,'C') wired into Makefile eval-verify; qrels-only hard-verify (regenerable JSONL skipped -> cold-clone-correct). baseline_lock.json untouched.",
+    "sealed": true
+  }
+}

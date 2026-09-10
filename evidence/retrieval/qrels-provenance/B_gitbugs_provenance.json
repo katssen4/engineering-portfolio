@@ -1,0 +1,28 @@
+{
+  "collection_id": "B",
+  "dataset_id": "gitbugs",
+  "method": "native_links",
+  "method_detail": "GitBugs native duplicate links (cassandra_bugs-combined.csv: Issue id -> Duplicate id), undirected transitive closure (union-find); each connected component is one duplicate cluster. Query = clustered report in corpus; relevant = other cluster members in corpus (self excluded).",
+  "grade_scale": "binary",
+  "pool_depth": null,
+  "judge": null,
+  "annotator": "upstream (GitBugs maintainers, native links)",
+  "qrels_version": "1.0",
+  "construction_date": "2026-06-21T20:08:29Z",
+  "comparability_class": "native",
+  "source": {
+    "url": "https://github.com/av9ash/gitbugs",
+    "license": "CC BY 4.0",
+    "citation": "Patil 2025, arXiv:2504.09651",
+    "project_slice": "cassandra"
+  },
+  "counts": {
+    "corpus_docs": 4612,
+    "duplicate_links": 292,
+    "clusters": 147,
+    "queries": 302,
+    "qrels_rows": 344,
+    "clustered_in_corpus": 305,
+    "qrels_coverage_pct": 99.02
+  }
+}

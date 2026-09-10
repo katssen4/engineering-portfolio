@@ -1,0 +1,26 @@
+{
+  "adr": "ADR-0012",
+  "lot": "S28_F1_RUN",
+  "ts": "2026-09-04T08:09:57+00:00",
+  "inputs": {
+    "base_run": "F1_artifacts/B_holdout_base_run.trec",
+    "arm_run": "F1_artifacts/B_holdout_f1_finetuned_run.trec",
+    "qrels": "F1_artifacts/B_holdout_qrels.trec",
+    "bootstrap_n": 10000,
+    "seed": 13,
+    "primary_metric": "nDCG@10",
+    "multiplicity_m": 1,
+    "multiple_comparison_correction": "none (family of one, ADR F5)"
+  },
+  "control": {
+    "computed": 0.575258,
+    "target": 0.576448,
+    "tolerance": 5e-07,
+    "n": 310,
+    "passed": false,
+    "ts": "2026-09-04T08:09:57+00:00"
+  },
+  "status": "fail",
+  "verdict": null,
+  "note": "ADR F7 control missed — the arm is BLOCKED, no verdict issued, no number interpreted."
+}

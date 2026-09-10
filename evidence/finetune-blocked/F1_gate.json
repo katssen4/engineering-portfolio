@@ -1,0 +1,12 @@
+{
+  "check1_tuning_holdout_overlap": 0,
+  "check2_holdout_qids_as_endpoint": 0,
+  "check3_holdout_clusters_touched": 0,
+  "check4_tuning_coverage": 476,
+  "check4_tuning_total": 740,
+  "n_endpoints": 476,
+  "offending_endpoints": [],
+  "offending_clusters": [],
+  "passed": true,
+  "ts": "2026-09-03T23:04:31+00:00"
+}

@@ -1,0 +1,149 @@
+{
+  "baselines": {
+    "B": {
+      "mrr": 0.462411,
+      "n_queries": 302,
+      "ndcg@10": 0.489051,
+      "recall@100": 0.769868
+    },
+    "B_cassandra_hybrid": {
+      "mrr": 0.494844,
+      "n_queries": 302,
+      "ndcg@10": 0.520634,
+      "recall@100": 0.82947
+    },
+    "B_cassandra_keyword": {
+      "mrr": 0.462411,
+      "n_queries": 302,
+      "ndcg@10": 0.489051,
+      "recall@100": 0.769868
+    },
+    "B_cassandra_vector": {
+      "mrr": 0.461017,
+      "n_queries": 302,
+      "ndcg@10": 0.491396,
+      "recall@100": 0.786424
+    },
+    "B_hadoop_hybrid": {
+      "mrr": 0.575211,
+      "n_queries": 128,
+      "ndcg@10": 0.628935,
+      "recall@100": 0.894531
+    },
+    "B_hadoop_keyword": {
+      "mrr": 0.514342,
+      "n_queries": 128,
+      "ndcg@10": 0.567182,
+      "recall@100": 0.894531
+    },
+    "B_hadoop_vector": {
+      "mrr": 0.546816,
+      "n_queries": 128,
+      "ndcg@10": 0.601737,
+      "recall@100": 0.894531
+    },
+    "B_hbase_hybrid": {
+      "mrr": 0.459202,
+      "n_queries": 111,
+      "ndcg@10": 0.496854,
+      "recall@100": 0.810811
+    },
+    "B_hbase_keyword": {
+      "mrr": 0.407243,
+      "n_queries": 111,
+      "ndcg@10": 0.433777,
+      "recall@100": 0.734234
+    },
+    "B_hbase_vector": {
+      "mrr": 0.42495,
+      "n_queries": 111,
+      "ndcg@10": 0.464765,
+      "recall@100": 0.77027
+    },
+    "B_hybrid": {
+      "mrr": 0.494844,
+      "n_queries": 302,
+      "ndcg@10": 0.520634,
+      "recall@100": 0.82947
+    },
+    "B_pooled_hybrid": {
+      "mrr": 0.448328,
+      "n_queries": 1050,
+      "ndcg@10": 0.485424,
+      "recall@100": 0.798254
+    },
+    "B_pooled_keyword": {
+      "mrr": 0.399549,
+      "n_queries": 1050,
+      "ndcg@10": 0.432148,
+      "recall@100": 0.742222
+    },
+    "B_pooled_vector": {
+      "mrr": 0.429099,
+      "n_queries": 1050,
+      "ndcg@10": 0.464767,
+      "recall@100": 0.776508
+    },
+    "B_spark_hybrid": {
+      "mrr": 0.386451,
+      "n_queries": 509,
+      "ndcg@10": 0.425951,
+      "recall@100": 0.752783
+    },
+    "B_spark_keyword": {
+      "mrr": 0.331706,
+      "n_queries": 509,
+      "ndcg@10": 0.364074,
+      "recall@100": 0.68926
+    },
+    "B_spark_vector": {
+      "mrr": 0.381464,
+      "n_queries": 509,
+      "ndcg@10": 0.414523,
+      "recall@100": 0.742305
+    },
+    "B_vector": {
+      "mrr": 0.461017,
+      "n_queries": 302,
+      "ndcg@10": 0.491396,
+      "recall@100": 0.786424
+    }
+  },
+  "bench_protocol_version": "1.0",
+  "integrity_hash": "sha256:42157eba44c6ed7024ddc94e21d96fb7f9d8dabe0b466ad915535ae03cc588dd",
+  "j1_3_projects": [
+    "cassandra",
+    "hadoop",
+    "hbase",
+    "spark"
+  ],
+  "manifest_ref": {
+    "manifest_version": "1.0",
+    "path": "corpus/schemas/CORPUS_MANIFEST.json"
+  },
+  "regression_policy": {
+    "delta_abs": 0.01,
+    "fail_on": "primary_metric_drop_beyond_delta_AND_significant",
+    "max_p": 0.05,
+    "primary_metric": "ndcg@10",
+    "require_significance": true,
+    "stat_test": "paired-t"
+  },
+  "schema": "ariane_baseline_lock_1.0",
+  "sealed": true,
+  "session": "S6",
+  "system": {
+    "embeddings_dim": 384,
+    "embeddings_model": "intfloat/e5-small-v2",
+    "embeddings_provider": "e5",
+    "embeddings_revision": "ffb93f3bd4047442299a41ebb6fa998a38507c52",
+    "engine": "fts5",
+    "engine_version": null,
+    "ir_measures_version": "0.4.3",
+    "python_version": "3.12.3",
+    "ranx_version": "0.3.20",
+    "rrf_k": 60,
+    "seed": 13
+  },
+  "timestamp_utc": "1970-01-01T00:00:00Z"
+}

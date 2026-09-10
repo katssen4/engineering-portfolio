@@ -8,6 +8,20 @@ code, and that I publish the numbers that do not favour me.
 
 Everything below is a real artefact from work I built alone. Nothing here is a tutorial.
 
+## Check it before you read it
+
+Every number on this page is recomputed from files that ship with the repository:
+
+    git clone https://github.com/katssen4/engineering-portfolio
+    cd engineering-portfolio
+    python3 tools/verify.py
+
+25 checks. It verifies the SHA-256 seal on the reference lock, rebuilds the table below cell by
+cell from that lock, confirms the blocked fine-tune really was blocked, and runs the 34 shipped
+unit tests. No network, no corpus download, standard library plus pytest.
+
+`evidence/` holds the working artefacts themselves, copied out of the bench that produced them.
+
 ---
 
 ## 1. Measuring a retrieval engine, and refusing to read the result
@@ -59,6 +73,10 @@ No threshold was relaxed. Not the memory guard, not the control tolerance.
 
 That is the piece of this repository I would most want a hiring team to read. Anyone can show a
 fine-tune that worked. This one shows a protocol that held when it was inconvenient.
+
+The files are in [`evidence/finetune-blocked/`](evidence/finetune-blocked/), including the two TREC
+run files and the held-out judgements, so the control failure can be recomputed rather than taken
+on my word.
 
 ---
 

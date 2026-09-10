@@ -1,0 +1,28 @@
+{
+  "collection_id": "B",
+  "dataset_id": "gitbugs",
+  "method": "native_links",
+  "method_detail": "GitBugs native duplicate links (hbase_bugs-combined.csv: Issue id -> Duplicate id), undirected transitive closure (union-find); each connected component is one duplicate cluster. Query = clustered report in corpus; relevant = other cluster members in corpus (self excluded).",
+  "grade_scale": "binary",
+  "pool_depth": null,
+  "judge": null,
+  "annotator": "upstream (GitBugs maintainers, native links)",
+  "qrels_version": "1.0",
+  "construction_date": "2026-06-21T20:08:32Z",
+  "comparability_class": "native",
+  "source": {
+    "url": "https://github.com/av9ash/gitbugs",
+    "license": "CC BY 4.0",
+    "citation": "Patil 2025, arXiv:2504.09651",
+    "project_slice": "hbase"
+  },
+  "counts": {
+    "corpus_docs": 5403,
+    "duplicate_links": 107,
+    "clusters": 54,
+    "queries": 111,
+    "qrels_rows": 120,
+    "clustered_in_corpus": 111,
+    "qrels_coverage_pct": 100.0
+  }
+}

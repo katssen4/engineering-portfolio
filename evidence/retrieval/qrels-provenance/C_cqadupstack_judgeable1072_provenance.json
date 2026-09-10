@@ -1,0 +1,75 @@
+{
+  "collection_id": "C",
+  "view": "judgeable1072",
+  "view_role": "SECOND EVALUATION VIEW over the SEALED collection C (ADR-0009, S21). Same corpus bytes, same native links, NO new judging: only the query set (all 1072 judgeable) and the qrels restricted to it are new. The view lives INSIDE C's manifest entry, discriminated by an explicit `view` field on each file, NOT as a new collection id: the corpus is byte-identical, so collection_id stays 'C' and the embedding cache stays a legitimate HIT (ADR-0009 D3) instead of forcing a needless full re-encode of 47382 docs per arm for zero integrity gain.",
+  "dataset_id": "cqadupstack-unix",
+  "method": "native_links",
+  "method_detail": "BEIR edition of CQADupStack native StackExchange 'duplicate of' moderator links (BeIR/cqadupstack-qrels unix/test.tsv) — THE SAME upstream links as the sealed C view, re-restricted to a larger query set. Query = a held-out question; relevant = its native duplicate question(s) present in the corpus (binary grade=1). qrels restricted to ALL 1072 judgeable queries -> 1693 rows (avg 1.58 rel/query). No closure/union-find needed (links are already question->duplicate-question pairs); self excluded. NO NEW JUDGING HAPPENS: judge=null, annotator unchanged.",
+  "grade_scale": "binary",
+  "pool_depth": null,
+  "judge": null,
+  "annotator": "upstream (StackExchange moderators 'duplicate of' links, via Hoogeveen et al. CQADupStack + BEIR repackaging)",
+  "qrels_version": "1.0",
+  "construction_date": "2026-08-23",
+  "comparability_class": "native",
+  "cross_comparable_to_B_native": true,
+  "cross_comparable_to_A_llm_judge": false,
+  "metric": "nDCG@10",
+  "source": {
+    "url": "https://huggingface.co/datasets/BeIR/cqadupstack",
+    "source_revision": "BeIR/cqadupstack@e84b7220ce5a4e6c49aeb568983b0ec5a7584c2c + BeIR/cqadupstack-qrels@13595a9f221256a9a21e91c8b0fed3563382b6a7",
+    "license": "CC BY-SA 4.0",
+    "license_verified_live": "2026-06-25 (both HF repos, at ingest — carried over from the sealed C view; NO new egress for this view)",
+    "citation": "Hoogeveen, Verspoor & Baldwin 2015/2016 (ADCS), 'CQADupStack: A Benchmark Data Set for Community Question-Answering Research'; Sep-2014 StackExchange dump; BEIR repackaging Thakur et al. 2021",
+    "subforum_slice": "unix",
+    "subforum_rationale": "the most ITSM-adjacent IT/tech subforum (nearest to A's IT support tickets); adapter is slice-agnostic. Unchanged from the sealed C view — this view re-slices QUERIES, never the source."
+  },
+  "query_selection": {
+    "n_queries": 1072,
+    "seed": 13,
+    "selection": "--n-queries 0 = ALL judgeable queries (a query is judgeable iff it has >=1 native-relevant doc present in the corpus; all 1072 judgeable -> 100% coverage, 0 missing). No RNG draw is involved: the view is the FULL judgeable pool, deterministic and sorted by integer qid.",
+    "qrels_shape": "TREC `qid 0 docid 1` (same shape as B native and as the sealed C view)"
+  },
+  "primary_sample": {
+    "ref": "corpus/queries/C_cqadupstack_judgeable1072_primary922_qids.json",
+    "sha256": "72b1e536178f1d87d32d770183020089320b8c4570141f6f3880276127170759",
+    "count": 922,
+    "definition": "PRIMARY (ADR-0009 D2) = the 922 judgeable queries NEVER SCORED by either arm = 1072 judgeable − the 150 sealed-C qids. FROZEN as an explicit, sorted, committed, hard-hash-verified qid list so the sample is auditable and CANNOT drift: the run-lot MUST read this file, and MUST NOT re-derive the set difference on the fly.",
+    "derivation": "bench/runners/build_corpus_C.py --view judgeable1072 --n-queries 0 --freeze-primary. The excluded 150 are read from the SEALED, hard-hash-verified qrels (corpus/qrels/C_cqadupstack_qrels.trec), and cross-checked against random.Random(13).sample(judgeable, 150) — the freeze REFUSES to write if the two disagree.",
+    "verified_disjointness": {
+      "primary_inter_sealed150": 0,
+      "primary_union_sealed150": 1072,
+      "primary_subset_of_view": true,
+      "sealed150_subset_of_view": true,
+      "sealed_qrels_rows_subset_of_view_qrels_rows": true
+    },
+    "qrels_rows_for_primary_subset": 1454,
+    "secondary_note": "The full 1072 view is SECONDARY / DESCRIPTIVE ONLY and gates nothing (ADR-0009 D2): it CONTAINS the already-reported sealed 150. Re-reporting the sealed 150 alone as a result is FORBIDDEN (CONVENTION_HOLDOUT_POLICY §3); their only sanctioned role is the D4 positive control."
+  },
+  "files": {
+    "corpus": "corpus/processed/C_cqadupstack_corpus.jsonl (47382 docs, regenerable:true, gitignored) — SHARED, byte-identical with the sealed C view (sha256=418e368b883751ee4088f78d68ad4371328e1211cd0fc4279df4a2c85cfaa0c0), NOT re-emitted by this view",
+    "queries": "corpus/queries/C_cqadupstack_judgeable1072_queries.jsonl (1072 queries, regenerable:true, gitignored, sha256=ab18888e34a9f71ae67f9f68546814bf351c0b9b594ee7ba8dfe073496651d91)",
+    "qrels": "corpus/qrels/C_cqadupstack_judgeable1072_qrels.trec (1693 rows, regenerable:false, committed, sha256=d26bd77b3b97502c152b3aad79413a6e5f6ff41b3130d7ff2eca15fac9f3c072, HARD hash-verified — AUD3-C2)",
+    "primary_qids": "corpus/queries/C_cqadupstack_judgeable1072_primary922_qids.json (922 qids, regenerable:false, committed, sha256=72b1e536178f1d87d32d770183020089320b8c4570141f6f3880276127170759, HARD hash-verified)"
+  },
+  "counts": {
+    "corpus_docs": 47382,
+    "queries_selected": 1072,
+    "judgeable_queries_total": 1072,
+    "qrels_rows": 1693,
+    "avg_relevant_per_query": 1.58,
+    "qrels_coverage_pct": 100.0,
+    "native_dup_links_total": 1693,
+    "primary_qids": 922,
+    "excluded_sealed_qids": 150
+  },
+  "calibration": "native duplicate-detection / known-item bench (StackExchange moderator 'duplicate of' links). comparability_class=native -> CROSS-COMPARABLE to B native (same family), NOT to A llm_judge. This view reports a WITHIN-C delta only (ADR-0005: no cross-method absolute comparison). Discriminance is a corpus property and is unchanged (median 613 chars / 101 words, normalized-collision 0.01%) — the corpus is the same bytes.",
+  "seal": {
+    "lot": "S21 S21_VIEW (ADR-0009 Accept, conditions AUD3-C2 + AUD3-C3)",
+    "mechanism": "The view's qrels + frozen primary qid list carry regenerable:false and are HARD hash-verified by verify_manifest_hashes(m,'C') (wired into Makefile eval-verify), exactly like the sealed C qrels — the new view has its own tamper anchor (AUD3-C2, both halves). The view's queries JSONL carries regenerable:true (heavy, gitignored) so the gate stays cold-clone-correct, matching existing C/A/B discipline.",
+    "sealed_c_untouched": "The EXISTING sealed C artefacts are NOT modified, moved or regenerated: corpus/queries/C_cqadupstack_queries.jsonl and corpus/qrels/C_cqadupstack_qrels.trec keep sha256 2337bea7c4e3cc054bca3fc27ddc8b4111bd7f3e4355513a799dd0461b7099c5 / e2b2289b3e3e2712bd2430484e97d337e124b3d9d6c3bb72385415469b3c39c5, verified after the build. bench/runs/baseline_lock.json is byte-untouched.",
+    "view_selection": "AUD3-C3: default C resolution is UNCHANGED — compare.resolve_triple(manifest,'C',None) and verify_manifest_hashes(m,'C',view=DEFAULT_VIEW) resolve to the ORIGINAL 150-query sealed view (the view-less files). This view is reachable ONLY by asking for it explicitly (view='judgeable1072').",
+    "sealed": true
+  },
+  "no_measurement": "This view was BUILT, not RUN. The lot that produced it encoded no query, ran no retrieval, computed no metric and opened no evaluation number. The single pre-registered comparison over the 922 (ADR-0009 D4) is a separate, later run-lot, evaluated and reported exactly ONCE."
+}

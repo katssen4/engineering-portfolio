@@ -1,0 +1,105 @@
+{
+  "collection_id": "A",
+  "dataset_id": "zenodo-7384758-itsm",
+  "method": "llm_judge",
+  "method_detail": "Per-query top-k=30 pooling with thenlper/gte-small (mean-pool + L2, cosine, seed 13, self-excluded) over the 2229-doc corpus; all 150x30=4500 (query, candidate) pairs graded 0-3 by qwen2.5:7b-instruct (local ollama, 0-egress) under the byte-identical S13/S14 anti-code-strict-v2 config. PRIMARY relevant set = graded qrels >= 1 AFTER the freeze demotion rule (see freeze_decision). Within-A only; NOT absolute-comparable to B native.",
+  "grade_scale": "graded_0_3",
+  "rubric": "3=same request | 2=same problem class + specifics | 1=related topic | 0=unrelated",
+  "pool_depth": 30,
+  "comparability_class": "llm_judge",
+  "within_A_only": true,
+  "cross_comparable_to_B_native": false,
+  "metric": "nDCG@10",
+  "annotator": "qwen2.5:7b-instruct (LLM judge, single model) + gemma2:9b 2nd-judge corroboration + blind operator human adjudication (n=16, condition-2 tie-breaker)",
+  "qrels_version": "1.0",
+  "construction_date": "2026-06-24",
+  "source": {
+    "url": "https://zenodo.org/record/7384758",
+    "zenodo_version_doi": "10.5281/zenodo.7384758",
+    "zenodo_concept_doi": "10.5281/zenodo.7384757",
+    "license": "CC BY 4.0",
+    "citation": "Pereira 2022, Federal Inst. Santa Catarina (BR), 'Classification of IT Support Tickets'"
+  },
+  "judge": {
+    "model": "qwen2.5:7b-instruct",
+    "runtime": "local ollama (0-egress; daemon started for the build and killed after)",
+    "ollama_version": "[from S13/S14: 0.23.1]",
+    "prompt_version": "anti-code-strict-v2",
+    "temperature": 0,
+    "num_predict": 4,
+    "k": 30,
+    "N_queries": 150,
+    "seed": 13,
+    "parse_fail": "0/4500",
+    "runner": "bench/runners/llm_judge_qrels.py"
+  },
+  "second_judge": {
+    "model": "gemma2:9b",
+    "family_note": "different model family from qwen (9B), pulled as a public-model download (network-IN, not A egress)",
+    "capability_probe": "6/6 scorable on the 7 known-answer S13 control pairs (above the >=5/7 floor -> no escalation); a competent independent grader",
+    "sample": "149-pair stratified (40 low-overlap qwen-3 cellA + 37 high-overlap qwen-non-3 cellB + baseline strata); gemma2 parse_fail 0",
+    "agreement": {
+      "overall_exact_grade": "43.6%",
+      "overall_adjacent_abs_delta_le_1": "96.0%",
+      "binary_grade3_kappa_whole_sample": 0.136,
+      "cellA_lowoverlap_qwen3_n40": {
+        "gemma2_also_3_pct": "17.5%",
+        "gemma2_ge2_pct": "97.5%",
+        "note": "gemma2 corroborates the low-overlap tail is RELEVANT (>=2) but CONTESTS qwen's specific grade-3 (reads them as same-problem-class grade-2)"
+      },
+      "cellB_highoverlap_qwennon3_n37": {
+        "gemma2_also_non3_pct": "100.0%",
+        "note": "qwen's WITHHOLDING of grade-3 on high-overlap pairs is independently confirmed"
+      }
+    },
+    "contested_cell_agreement": "n=77 combined: kappa(grade3)=0.169, exact-grade 51.9% -- the 2nd model corroborated qwen on coarse relevance but did NOT independently reproduce qwen's exact grade-3 labels on the semantic tail"
+  },
+  "human_validation": {
+    "n": 16,
+    "method": "blind stratified operator adjudication (AskUserQuestion); qwen grade + overlap/cosine numbers hidden; pairs shuffled so order does not leak the grouping",
+    "role": "condition-2 tie-breaker -- the only INDEPENDENT signal (gemma2 had corroborated qwen on the contested cell)",
+    "cellA_lowoverlap_qwen3": {
+      "n": 9,
+      "qwen_grade": 3,
+      "human_grade_dist": { "0": 1, "1": 3, "2": 3, "3": 2 },
+      "kept_grade3": 2,
+      "non_relevant_for_dup_bench": 4,
+      "non_relevant_definition": "human_grade <= 1 (grade 1 = 'related topic only' is NOT a known-item/duplicate match for this dup-detection bench; 1 strict-unrelated + 3 related-only = 4/9 = ~44% spurious)",
+      "strict_unrelated_human0": 1,
+      "spurious_pct": "~44% (4/9)",
+      "reading": "qwen's low-overlap grade-3 'semantic tail' is ~44% spurious as a DUPLICATE/known-item label; the human kept it as a same-request 3 in only 2/9 and judged 4/9 non-duplicate (grade <=1). This is what DEMOTES the tail out of the primary metric."
+    },
+    "cellB_highoverlap_qwennon3": {
+      "n": 7,
+      "qwen_grade": "non-3 (2)",
+      "human_grade_dist": { "2": 5, "3": 2 },
+      "relevance_agreement": "7/7 (every high-overlap near-dup the human judged relevant >=2)",
+      "reading": "qwen's HIGH-overlap near-dup grades are RELIABLE -- human relevance-agreement 7/7. The validated near-dup signal is the primary qrels."
+    },
+    "source": "corpus/qrels/A_human_validation_S15.jsonl"
+  },
+  "freeze_decision": {
+    "primary": "near-duplicate / known-item bench",
+    "demotion_rule": "grade==3 AND jaccard_stripped < 0.3 -> excluded from primary relevant set (treated non-relevant)",
+    "demotion_boundary": "jaccard_stripped < 0.3 (the S14-established low-overlap boundary; a conservative cut -- the human evidence sits on the extreme low-overlap end of this band)",
+    "n_demoted": 175,
+    "frozen_relevant_rows": 2486,
+    "frozen_grade_dist": { "1": 513, "2": 1008, "3": 965 },
+    "judgeable_queries_of_150": 147,
+    "queries_dropped_lost_all_relevant": 3,
+    "queries_dropped_ids": ["3807", "3817", "3834"],
+    "flagged_sidecar": "corpus/qrels/A_zenodo7384758_flagged_tail.jsonl",
+    "flagged_sidecar_rows": 175,
+    "decision_note": "PRIMARY qrels = the human+gemma2-validated near-dup signal. The low-overlap grade-3 tail is DEMOTED out of the primary metric but PRESERVED append-only in the flagged sidecar for future semantic-judge research (data-steward: destroy nothing)."
+  },
+  "counts": {
+    "corpus_docs": 2229,
+    "queries_total": 150,
+    "pairs_judged": 4500,
+    "draft_grade_dist": { "0": 1839, "1": 513, "2": 1008, "3": 1140 },
+    "demoted_lowoverlap_grade3": 175,
+    "frozen_relevant_rows": 2486,
+    "judgeable_queries": 147
+  },
+  "calibration": "near-duplicate / dup-detection bench; semantic-beyond-near-dup is not reliably gradeable (human-rejected: low-overlap qwen-grade-3 ~44% spurious as a duplicate label). NOT cross-comparable to B native. The discriminating signal is near-dup detection; the demoted low-overlap semantic tail is preserved (flagged sidecar) but excluded from the primary metric."
+}
