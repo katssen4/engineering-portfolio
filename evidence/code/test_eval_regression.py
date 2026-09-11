@@ -306,7 +306,12 @@ def test_reseal_preserves_baselines_and_verify_passes_after(tmp_path):
         "schema": "ariane_baseline_lock_1.0",
         "session": "S5",
         "sealed": True,
-        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01},
+        # Politique complete : depuis 2026-09-11 le reseal valide avant de signer, donc un
+        # verrou qui ne peut pas arbitrer ne recoit pas de sceau. Cette fixture en portait
+        # une amputee, c'est-a-dire exactement le fichier que le correctif refuse.
+        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01,
+                              "require_significance": True, "max_p": 0.05,
+                              "stat_test": "paired-t"},
         "baselines": {
             "B": {"ndcg@10": 0.489051, "mrr": 0.462411, "recall@100": 0.769868, "n_queries": 302}
         },
@@ -759,7 +764,13 @@ def test_main_exits_SETUP_ERROR_on_a_mixed_regime(tmp_path, monkeypatch, capsys)
     lock = tmp_path / "baseline_lock.json"
     lock.write_text(json.dumps(payload), encoding="utf-8")
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps({"collections": []}), encoding="utf-8")
+    # Une collection scellee et sans fichier : depuis 2026-09-11, main ne se contente
+    # plus de l'integrite des ancres, il exige que les entrees du run soient celles du
+    # protocole fige. Un manifest vide veut dire « collection absente », donc « pas de
+    # verdict », et ces deux tests portent sur autre chose.
+    manifest.write_text(json.dumps(
+        {"collections": [{"collection_id": "B", "sealed": True, "files": []}]}),
+        encoding="utf-8")
 
     monkeypatch.setattr(er, "verify_manifest_hashes", lambda *a, **k: (True, "stub"))
     monkeypatch.setattr(
@@ -792,7 +803,13 @@ def test_main_gates_normally_when_both_sides_are_one_regime(tmp_path, monkeypatc
     lock = tmp_path / "baseline_lock.json"
     lock.write_text(json.dumps(payload), encoding="utf-8")
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps({"collections": []}), encoding="utf-8")
+    # Une collection scellee et sans fichier : depuis 2026-09-11, main ne se contente
+    # plus de l'integrite des ancres, il exige que les entrees du run soient celles du
+    # protocole fige. Un manifest vide veut dire « collection absente », donc « pas de
+    # verdict », et ces deux tests portent sur autre chose.
+    manifest.write_text(json.dumps(
+        {"collections": [{"collection_id": "B", "sealed": True, "files": []}]}),
+        encoding="utf-8")
 
     monkeypatch.setattr(er, "verify_manifest_hashes", lambda *a, **k: (True, "stub"))
     monkeypatch.setattr(
@@ -890,3 +907,103 @@ def test_an_incomplete_lock_is_still_hash_valid(tmp_path):
     assert ok, "the seal is valid"
     ok, _ = er.validate_lock_for_gate(lock, "B")
     assert not ok, "and the lock still cannot gate"
+
+
+# ── Une inégalité contre NaN est fausse, silencieusement ────────────────────────
+#
+# Toutes les décisions de ce module sont des inégalités. En Python, toute inégalité
+# impliquant NaN rend False. Une métrique NaN se lisait donc « n'a pas chuté au-delà du
+# delta », et une p-value NaN « pas significatif ». Dans les deux cas le gate répondait
+# « pas de régression » à propos d'une quantité qui n'existe pas. Relevé le 2026-09-11.
+
+
+_POLITIQUE = {"delta_abs": 0.01, "require_significance": True, "max_p": 0.05}
+
+
+VALEURS_INGATABLES = [
+    ("métrique NaN", {"current": float("nan"), "baseline": 0.50, "p_value": 0.01}),
+    ("métrique +inf", {"current": float("inf"), "baseline": 0.50, "p_value": 0.01}),
+    ("métrique -inf", {"current": float("-inf"), "baseline": 0.50, "p_value": 0.01}),
+    ("métrique non numérique", {"current": "0.40", "baseline": 0.50, "p_value": 0.01}),
+    ("baseline NaN", {"current": 0.40, "baseline": float("nan"), "p_value": 0.01}),
+    ("p-value NaN", {"current": 0.40, "baseline": 0.50, "p_value": float("nan")}),
+    ("p-value > 1", {"current": 0.40, "baseline": 0.50, "p_value": 1.5}),
+    ("p-value < 0", {"current": 0.40, "baseline": 0.50, "p_value": -0.1}),
+    ("p-value non numérique", {"current": 0.40, "baseline": 0.50, "p_value": "0.01"}),
+]
+
+
+@pytest.mark.parametrize("nom,kw", VALEURS_INGATABLES, ids=[n for n, _ in VALEURS_INGATABLES])
+def test_une_valeur_non_finie_ne_peut_pas_produire_de_verdict(nom, kw):
+    with pytest.raises(er.CannotGateError):
+        er.is_regression(policy=_POLITIQUE, baseline_is_legacy=True,
+                         current_is_legacy=True, **kw)
+
+
+def test_les_valeurs_valides_produisent_toujours_un_verdict():
+    """Le témoin : le durcissement ne doit pas transformer le gate en refus permanent."""
+    assert er.is_regression(0.40, 0.50, _POLITIQUE, p_value=0.01,
+                            baseline_is_legacy=True, current_is_legacy=True) is True
+    assert er.is_regression(0.499, 0.50, _POLITIQUE, p_value=None,
+                            baseline_is_legacy=True, current_is_legacy=True) is False
+
+
+def test_un_stat_test_non_supporte_rend_le_verrou_ingatable():
+    """La présence de `stat_test` était vérifiée, pas son appartenance aux valeurs
+    connues. Un nom inconnu explosait plus loin sur un KeyError, c'est-à-dire un plantage
+    au lieu d'un refus."""
+    lock = _gateable_lock()
+    lock["regression_policy"]["stat_test"] = "future_test_typo"
+    ok, message = er.validate_lock_for_gate(lock, "B")
+    assert not ok
+    assert "stat_test" in message
+
+
+# ── L'intégrité n'est pas la comparabilité ──────────────────────────────────────
+#
+# `verify_manifest_hashes` répond « les ancres commitées correspondent-elles », et le
+# fait bien. `main` lui posait une autre question, « ai-je le droit d'arbitrer », et
+# héritait de sa permissivité : une collection non scellée rendait True avec la mention
+# « hash verify skipped », un corpus régénérable présent mais dérivé rendait True avec
+# une note. Un corpus absent et un corpus différent ne sont pas le même état.
+
+
+ETATS_MANIFEST = [
+    ("non scellé", er.ManifestStatus(False, [], [], []), False),
+    ("ancre commitée dérivée", er.ManifestStatus(True, ["qrels.trec"], [], []), False),
+    ("corpus présent et dérivé", er.ManifestStatus(True, [], [], ["corpus.db"]), False),
+    ("corpus absent", er.ManifestStatus(True, [], ["corpus.db"], []), False),
+    ("tout en place", er.ManifestStatus(True, [], [], []), True),
+]
+
+
+@pytest.mark.parametrize("nom,etat,peut", ETATS_MANIFEST, ids=[n for n, _, _ in ETATS_MANIFEST])
+def test_la_politique_d_arbitrage_distingue_les_quatre_etats(nom, etat, peut):
+    obtenu, message = etat.peut_arbitrer()
+    assert obtenu is peut, f"{nom} : {message}"
+    assert message
+
+
+def test_un_corpus_derive_est_un_probleme_de_comparabilite_pas_d_integrite():
+    """Le cas qui rend un verdict faux plutôt qu'absent. Le corpus est là, le système
+    sait qu'il n'est pas celui du manifeste, et il calcule quand même un score qu'il
+    compare à une baseline figée : baseline(jeu A) contre courant(jeu B), et l'écart est
+    attribué au système évalué."""
+    derive = er.ManifestStatus(True, [], [], ["corpus.db"])
+    absent = er.ManifestStatus(True, [], ["corpus.db"], [])
+    assert not derive.peut_arbitrer()[0]
+    assert "different data" in derive.peut_arbitrer()[1]
+    assert not absent.peut_arbitrer()[0]
+    assert "Nothing to recompute" in absent.peut_arbitrer()[1]
+
+
+def test_le_reseal_refuse_de_signer_un_verrou_ingatable(tmp_path):
+    """Un hash impeccable sur un verrou inutilisable : la prochaine exécution le refusera
+    correctement, mais l'outil présenté comme la façon sanctionnée de déplacer la baseline
+    vient d'en estampiller un invalide comme officiel."""
+    payload = _gateable_lock()
+    payload["regression_policy"].pop("max_p")
+    lock = tmp_path / "baseline_lock.json"
+    lock.write_text(json.dumps(payload), encoding="utf-8")
+    assert er._reseal(lock, session="S7") == er.EXIT_SETUP_ERROR
+    assert "integrity_hash" not in json.loads(lock.read_text(encoding="utf-8"))

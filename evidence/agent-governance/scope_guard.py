@@ -32,6 +32,17 @@ from pathlib import Path
 # sont pas des autorisations. Les lire comme telles inverserait le sens du garde.
 _SKIP_PREFIXES = ("HORS SCOPE", "INTERDIT", "NOTE", "ATTENTION", "EXCLUS")
 
+# Les memes, mais comme marqueurs d'interdiction : ceux-la nomment une intention, et une
+# intention reconnue que la grammaire ne sait pas placer doit refuser, pas disparaitre.
+_MARQUEURS_INTERDICTION = ("HORS SCOPE", "INTERDIT", "EXCLUS", "FORBIDDEN", "READ-ONLY",
+                           "READ ONLY", "LECTURE SEULE", "NE PAS TOUCHER", "DO NOT")
+
+
+def _est_marqueur_interdiction(ligne: str) -> bool:
+    """Vrai si la ligne annonce une interdiction, titre Markdown compris."""
+    nue = ligne.lstrip("#*-+ ").strip().upper()
+    return any(nue.startswith(kw) for kw in _MARQUEURS_INTERDICTION)
+
 # Un perimetre peut nommer un fichier dont le nom n'est pas connu a l'avance.
 _PLACEHOLDER_PATTERN = re.compile(r"<(?:TS|TIMESTAMP|DATE|HASH|SESSION|RUN|ID)>", re.IGNORECASE)
 
@@ -53,17 +64,24 @@ class PerimetreAmbiguError(RuntimeError):
 
 
 def _extract_scope_block(content: str) -> str | None:
-    """Contenu de l'unique bloc <scope>...</scope>. Leve si le prompt en porte plusieurs."""
-    strict = list(re.finditer(r"^<scope>(.*?)^</scope>", content, re.DOTALL | re.MULTILINE))
-    if len(strict) > 1:
-        raise PerimetreAmbiguError(f"{len(strict)} blocs <scope> dans le prompt")
-    if strict:
-        return strict[0].group(1)
-    inline = list(re.finditer(r"<scope>(.*?)</scope>", content, re.DOTALL | re.IGNORECASE))
-    if len(inline) > 1:
-        raise PerimetreAmbiguError(f"{len(inline)} blocs <scope> dans le prompt")
-    if inline:
-        return inline[0].group(1)
+    """Contenu de l'unique bloc <scope>...</scope>. Leve si le prompt en porte plusieurs.
+
+    Un seul comptage, et il est canonique. Le comptage precedent se faisait en deux passes :
+    d'abord les blocs en debut de ligne et sensibles a la casse, et seulement si cette passe
+    ne trouvait rien, les blocs en ligne et insensibles a la casse. Un prompt portant
+    `<scope>` puis `<SCOPE>` sortait donc de la premiere passe avec un seul bloc trouve, et
+    le second n'etait jamais compte : l'ambiguite que le garde promet de refuser passait a
+    cause de la casse. Releve le 2026-09-11.
+
+    La propriete doit etre independante de la casse, de la mise en forme et du caractere
+    en ligne ou multiligne, puisque chacune de ces variantes est acceptee isolement.
+    """
+    blocs = list(re.finditer(r"<scope\b[^>]*>(.*?)</scope\s*>", content,
+                             re.DOTALL | re.IGNORECASE))
+    if len(blocs) > 1:
+        raise PerimetreAmbiguError(f"{len(blocs)} blocs <scope> dans le prompt")
+    if blocs:
+        return blocs[0].group(1)
     return None
 
 
@@ -101,18 +119,84 @@ def _extract_regex_writing_section(scope_block: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _parse_path_patterns(section: str) -> list[str]:
-    """Chemins d'une section a puces. Une ligne sans `/` ni `.` n'est pas un chemin."""
+class InterdictionNonStructureeError(RuntimeError):
+    """Le perimetre nomme une interdiction dans une forme que la grammaire ne porte pas.
+
+    La grammaire structuree a une seule facon d'ecrire une interdiction, la balise
+    `<interdit>`. Un prompt qui ecrit `## Interdit` a cote d'une section `<écriture>`, ou
+    `INTERDIT :` a l'interieur de celle-ci, exprime la meme intention dans une forme que le
+    garde ne sait pas rattacher. Elle etait alors simplement sautee, ce qui produisait deux
+    resultats et les deux sont mauvais : l'interdiction disparaissait, et dans le second cas
+    les chemins qui la suivaient devenaient des autorisations d'ecriture.
+
+    C'est le cas que le docstring de ce module decrit comme le plus tenace du garde en
+    service, dix recidives sur six sessions. Il etait ferme pour l'ancien format en meme
+    temps que la liste blanche, et restait ouvert a l'interieur de la grammaire structuree.
+    Trouve le 2026-09-11 en instruisant une revue qui signalait le premier des deux cas.
+
+    Une intention reconnue et non placable refuse. Le prompt se reecrit avec `<interdit>`.
+    """
+
+
+class CheminAmbiguError(RuntimeError):
+    """Une ligne de perimetre ne dit pas sans ambiguite ou finit le chemin.
+
+    Le decoupage precedent coupait la ligne au premier espace. `docs/my file.md` devenait
+    donc la permission `docs/my`, qui est un **prefixe plus large** que ce que le prompt
+    accordait : `docs/my/secret.txt` et tout son sous-arbre passaient, alors que le prompt
+    n'avait donne qu'un fichier. Une ambiguite d'analyse se resolvait en elargissement de
+    privilege, ce qui est l'inverse de ce qu'un garde doit faire. Releve le 2026-09-11.
+    """
+
+
+def _chemin_de_ligne(ligne: str) -> str | None:
+    """Le chemin d'une ligne de puce, ou None si la ligne n'en porte pas.
+
+    Trois formes, dans cet ordre, et rien d'autre :
+
+    1. entre accents graves, `docs/my file.md`, et alors les espaces appartiennent au
+       chemin, c'est la seule facon de declarer un chemin qui en contient ;
+    2. nu, suivi d'un commentaire entre parentheses, `src/foo/ (le connecteur)`, ou le
+       commentaire tombe ;
+    3. nu, sans espace du tout.
+
+    Toute autre ligne leve `CheminAmbiguError`. Un chemin nu contenant un espace n'est pas
+    tronque : le garde ne sait pas ou il finit, donc il refuse tout le perimetre.
+    """
+    if (m := re.fullmatch(r"`([^`]+)`(?:\s+.*)?", ligne)):
+        return m.group(1).strip()
+    tete, _, reste = ligne.partition(" ")
+    if reste and not reste.lstrip().startswith("("):
+        raise CheminAmbiguError(
+            f"« {ligne} » : espace dans un chemin non encadre par des accents graves. "
+            f"Ecrire `{ligne}` si l'espace fait partie du chemin.")
+    return tete.strip("`").strip() or None
+
+
+def _parse_path_patterns(section: str, *, section_ecriture: bool = False) -> list[str]:
+    """Chemins d'une section a puces. Une ligne sans `/` ni `.` n'est pas un chemin.
+
+    Leve `CheminAmbiguError` sur une ligne dont le chemin n'a pas de fin determinable, et
+    `InterdictionNonStructureeError` sur un marqueur d'interdiction trouve dans une section
+    d'ecriture, ou il n'a aucun sens que le garde puisse appliquer.
+    """
     patterns: list[str] = []
     for raw in section.splitlines():
         ligne = raw.strip()
-        if not ligne or ligne.startswith("#"):
+        if not ligne or (ligne.startswith("#") and not section_ecriture):
             continue
-        if any(ligne.upper().startswith(kw) for kw in _SKIP_PREFIXES):
+        if _est_marqueur_interdiction(ligne):
+            if section_ecriture:
+                raise InterdictionNonStructureeError(
+                    f"« {ligne} » dans la section d'ecriture : une interdiction s'ecrit "
+                    f"<interdit>, sinon les chemins qui la suivent deviennent des "
+                    f"autorisations.")
+            continue
+        if ligne.startswith("#"):
             continue
         if ligne[:2] in ("- ", "* ", "+ "):
             ligne = ligne[2:].strip()
-        chemin = re.split(r"[\s(]", ligne, maxsplit=1)[0].strip().strip("`").strip()
+        chemin = _chemin_de_ligne(ligne)
         if not chemin or chemin.startswith("**"):
             continue
         if "/" not in chemin and "." not in chemin:
@@ -171,11 +255,40 @@ def extract_forbidden_patterns(prompt_path: str | Path) -> list[str]:
         return []
     sections = re.findall(r"<(interdit|exclus)\b[^>]*>(.*?)</\1\s*>", bloc,
                           re.IGNORECASE | re.DOTALL)
-    return [c for _, corps in sections for c in _parse_path_patterns(corps)]
+    try:
+        return [c for _, corps in sections for c in _parse_path_patterns(corps)]
+    except CheminAmbiguError:
+        # Une interdiction illisible ne s'evapore pas : `extract_scope_patterns` refuse
+        # le perimetre entier sur la meme ligne, et le commit ne passera pas.
+        return []
+
+
+def _refuser_interdiction_hors_grammaire(bloc: str, section_ecriture: str) -> None:
+    """Leve si le bloc nomme une interdiction ailleurs que dans une balise <interdit>.
+
+    On retire du bloc les sections XML, qui ont leur grammaire, ainsi que la section
+    d'ecriture deja parsee. Ce qui reste est du texte libre : un `## Interdit` qui s'y
+    trouve exprime une intention que le garde ne sait pas appliquer, et la sauter revient
+    a accorder l'ecriture large qui est declaree juste au-dessus.
+    """
+    reste = re.sub(r"<([A-Za-zÉéÈèÀàÇç][\w-]*)\b[^>]*>.*?</\1\s*>", "", bloc,
+                   flags=re.DOTALL | re.IGNORECASE)
+    reste = reste.replace(section_ecriture, "")
+    for ligne in reste.splitlines():
+        ligne = ligne.strip()
+        if ligne and _est_marqueur_interdiction(ligne):
+            raise InterdictionNonStructureeError(
+                f"« {ligne} » hors de toute balise : une interdiction s'ecrit <interdit>.")
 
 
 def extract_scope_patterns(prompt_path: str | Path) -> tuple[list[str], str]:
-    """Rend (chemins autorises, niveau d'extraction). Liste vide = aucun perimetre."""
+    """Rend (chemins autorises, niveau d'extraction). Liste vide = aucun perimetre.
+
+    Aucune exception ne sort d'ici : une ligne illisible rend une liste vide et un niveau
+    qui la nomme, donc un code 2. Une trace Python sortirait avant la premiere ligne de
+    resultat et se lirait comme un silence, ce qui est le defaut que l'audit interne du
+    2026-09-11 a trouve dans le verificateur.
+    """
     contenu = Path(prompt_path).read_text(encoding="utf-8")
     try:
         bloc = _extract_scope_block(contenu)
@@ -183,12 +296,20 @@ def extract_scope_patterns(prompt_path: str | Path) -> tuple[list[str], str]:
         return [], "perimetre-ambigu"
     if bloc is None:
         return [], "no-scope"
-    section = _extract_xml_writing_section(bloc)
-    if section is not None:
-        return _parse_path_patterns(section), "xml-strict"
-    section = _extract_regex_writing_section(bloc)
-    if section is not None:
-        return _parse_path_patterns(section), "xml-regex"
+    try:
+        section = _extract_xml_writing_section(bloc)
+        niveau = "xml-strict"
+        if section is None:
+            section = _extract_regex_writing_section(bloc)
+            niveau = "xml-regex"
+        if section is not None:
+            patterns = _parse_path_patterns(section, section_ecriture=True)
+            _refuser_interdiction_hors_grammaire(bloc, section)
+            return patterns, niveau
+    except CheminAmbiguError:
+        return [], "chemin-ambigu"
+    except InterdictionNonStructureeError:
+        return [], "interdiction-hors-grammaire"
     # Le repli sur le bloc entier ne s'applique QUE si le bloc n'est pas structure du tout.
     # Des qu'une section connue apparait, lire le bloc entier reviendrait a promouvoir les
     # chemins de <lecture> et de <interdit> en autorisations d'ecriture. Une revue exterieure
@@ -198,7 +319,10 @@ def extract_scope_patterns(prompt_path: str | Path) -> tuple[list[str], str]:
         return [], "ecriture-illisible"
     if re.search(_SECTIONS_CONNUES, bloc, re.IGNORECASE):
         return [], "scope-structure-sans-section-ecriture"
-    direct = _patterns_ancien_format_stricts(bloc)
+    try:
+        direct = _patterns_ancien_format_stricts(bloc)
+    except CheminAmbiguError:
+        return [], "chemin-ambigu"
     if direct:
         return direct, "xml-direct"
     return [], "no-writing-section"
@@ -231,15 +355,35 @@ def _regex_de_motif(pattern: str) -> re.Pattern:
 
 
 def file_matches_scope(filepath: str, patterns: list[str]) -> bool:
-    """Chemin exact, prefixe de repertoire, ou motif dont aucun joker ne franchit un `/`."""
+    """Trois formes de permission, distinguees par leur ecriture et non devinees.
+
+        `src/foo/`          repertoire, recursif        -> src/foo/ et tout ce qu'il contient
+        `reports/*.json`    motif, borne au segment     -> reports/a.json, pas reports/x/a.json
+        `config/s.json`     chemin exact, et rien d'autre
+
+    La troisieme forme est la correction du 2026-09-11. Un motif sans barre finale etait
+    traite a la fois comme un fichier et comme un repertoire : `config/settings.json`
+    autorisait `config/settings.json/evil.py`, puisque le chemin commence bien par
+    `config/settings.json/`. Rien n'interdit a un repertoire de s'appeler `settings.json`,
+    et une permission de fichier devenait donc une permission de sous-arbre.
+
+    Une meme chaine ne peut pas signifier deux choses dans une porte de permission. Un
+    repertoire s'ecrit avec sa barre finale ; sans elle, la permission porte sur ce chemin
+    et sur lui seul.
+    """
     for pattern in patterns:
-        norme = pattern.rstrip("/")
-        if filepath == norme or filepath.startswith(norme + "/"):
-            return True
-        if _PLACEHOLDER_PATTERN.search(norme) or any(c in norme for c in "*?"):
-            motif = _regex_de_motif(norme)
+        if pattern.endswith("/"):
+            repertoire = pattern.rstrip("/")
+            if filepath == repertoire or filepath.startswith(repertoire + "/"):
+                return True
+            continue
+        if _PLACEHOLDER_PATTERN.search(pattern) or any(c in pattern for c in "*?"):
+            motif = _regex_de_motif(pattern)
             if motif.fullmatch(filepath) or motif.fullmatch(filepath.split("/")[0]):
                 return True
+            continue
+        if filepath == pattern:
+            return True
     return False
 
 

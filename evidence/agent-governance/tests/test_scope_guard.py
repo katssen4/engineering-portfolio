@@ -90,17 +90,35 @@ def test_une_sous_balise_ecriture_illisible_ne_degrade_pas_en_bloc_entier(tmp_pa
     assert code == sg.EXIT_SANS_PERIMETRE
 
 
-def test_une_section_interdit_n_autorise_rien(tmp_path):
+def test_une_interdiction_dans_la_section_d_ecriture_refuse_le_perimetre(tmp_path):
+    """Le contrat a change le 2026-09-11, et le refus est passe de 1 a 2.
+
+    Cette ligne etait sautee en silence. Ici, avec le chemin sur la meme ligne, le resultat
+    etait juste par accident : rien ne suivait le marqueur. Sur deux lignes, les chemins
+    d'apres devenaient des autorisations d'ecriture, ce qui est le cas le plus tenace du
+    garde en service, dix recidives sur six sessions.
+
+    Une intention reconnue que la grammaire ne sait pas placer ne peut pas etre ignoree.
+    Le perimetre n'est pas etabli, donc code 2, et le prompt se reecrit avec <interdit>.
+    """
     p = tmp_path / "interdit.md"
     p.write_text(
         "<scope>\n  <écriture>\n"
         "    - src/ok.py\n"
         "    INTERDIT src/secret.py\n"
         "  </écriture>\n</scope>\n", encoding="utf-8")
-    patterns, _ = sg.extract_scope_patterns(p)
-    assert patterns == ["src/ok.py"]
-    code, hors, _ = sg.run_check(p, ["src/secret.py"])
+    patterns, niveau = sg.extract_scope_patterns(p)
+    assert patterns == []
+    assert niveau == "interdiction-hors-grammaire"
+    assert sg.run_check(p, ["src/secret.py"])[0] == sg.EXIT_SANS_PERIMETRE
+    # Et le temoin : ecrite dans la grammaire, la meme intention refuse en 1 et nomme.
+    q = tmp_path / "structure.md"
+    q.write_text(
+        "<scope>\n  <écriture>\n    - src/\n  </écriture>\n"
+        "  <interdit>\n    - src/secret.py\n  </interdit>\n</scope>\n", encoding="utf-8")
+    code, hors, _ = sg.run_check(q, ["src/secret.py"])
     assert code == sg.EXIT_DEPASSEMENT
+    assert hors == ["src/secret.py"]
 
 
 # ── Les chemins fail-open trouves par la revue du 2026-09-11 ──────────────────
@@ -333,3 +351,101 @@ def test_un_joker_ne_franchit_jamais_un_separateur(motif, chemin, attendu):
     """Meme regle pour les placeholders et pour les globs explicites : `*` designe un
     fragment de nom. La traversee d'arborescence s'ecrit `**`, elle ne se devine pas."""
     assert sg.file_matches_scope(chemin, [motif]) is attendu
+
+
+# ── Une permission est une forme, pas une chaine qu'on interprete ─────────────
+#
+# Les deux P0 de la revue du 2026-09-11 au soir ont la meme cause : une seule chaine
+# essayait de representer un fichier, un repertoire, un motif et un placeholder, et le
+# code devinait ensuite lequel. Les deux fois, la devinette elargissait la permission.
+
+
+def test_un_chemin_avec_espace_ne_devient_pas_un_prefixe_plus_large(tmp_path):
+    """`docs/my file.md` etait coupe au premier espace et donnait la permission
+    `docs/my`, qui ouvre tout un sous-arbre. Une ambiguite d'analyse ne peut pas se
+    resoudre en elargissement de privilege."""
+    p = tmp_path / "espace.md"
+    p.write_text("<scope>\n  <écriture>\n    - `docs/my file.md`\n  </écriture>\n</scope>\n",
+                 encoding="utf-8")
+    assert sg.extract_scope_patterns(p)[0] == ["docs/my file.md"]
+    assert sg.run_check(p, ["docs/my file.md"])[0] == sg.EXIT_CONFORME
+    assert sg.run_check(p, ["docs/my/secret.txt"])[0] == sg.EXIT_DEPASSEMENT
+
+
+def test_un_chemin_nu_avec_espace_refuse_au_lieu_d_etre_tronque(tmp_path):
+    """Sans accents graves, le garde ne sait pas ou finit le chemin. Il refuse."""
+    p = tmp_path / "nu.md"
+    p.write_text("<scope>\n  <écriture>\n    - docs/my file.md\n  </écriture>\n</scope>\n",
+                 encoding="utf-8")
+    patterns, niveau = sg.extract_scope_patterns(p)
+    assert patterns == []
+    assert niveau == "chemin-ambigu"
+    assert sg.run_check(p, ["docs/my/secret.txt"])[0] == sg.EXIT_SANS_PERIMETRE
+
+
+def test_un_commentaire_entre_parentheses_reste_lisible(tmp_path):
+    """Le durcissement ne doit pas fermer la forme courante `- src/foo/ (le connecteur)`,
+    sinon le garde devient impraticable et finit desactive."""
+    p = tmp_path / "commentaire.md"
+    p.write_text("<scope>\n  <écriture>\n    - src/foo/ (le connecteur)\n  </écriture>\n</scope>\n",
+                 encoding="utf-8")
+    assert sg.extract_scope_patterns(p)[0] == ["src/foo/"]
+
+
+FORMES = [
+    ("fichier exact, lui-meme", "config/settings.json", "config/settings.json", True),
+    ("fichier exact, pseudo sous-arbre", "config/settings.json",
+     "config/settings.json/evil.py", False),
+    ("repertoire, son contenu", "src/foo/", "src/foo/a.py", True),
+    ("repertoire, en profondeur", "src/foo/", "src/foo/profond/a.py", True),
+    ("repertoire, lui-meme", "src/foo/", "src/foo", True),
+    ("motif, enfant direct", "reports/*.json", "reports/a.json", True),
+    ("motif, sous-repertoire", "reports/*.json", "reports/prive/a.json", False),
+    ("motif recursif explicite", "reports/**/*.json", "reports/prive/a.json", True),
+]
+
+
+@pytest.mark.parametrize("nom,motif,chemin,attendu", FORMES, ids=[f[0] for f in FORMES])
+def test_les_trois_formes_de_permission_se_distinguent(nom, motif, chemin, attendu):
+    """`config/settings.json` autorisait `config/settings.json/evil.py`, parce que le
+    chemin commence bien par `config/settings.json/`. Rien n'interdit a un repertoire de
+    s'appeler `settings.json`. Un repertoire s'ecrit avec sa barre finale."""
+    assert sg.file_matches_scope(chemin, [motif]) is attendu
+
+
+def test_deux_scopes_de_casse_differente_sont_ambigus(tmp_path):
+    """Le comptage se faisait en deux passes, la premiere sensible a la casse. Un prompt
+    portant `<scope>` puis `<SCOPE>` sortait de la premiere avec un seul bloc, et le second
+    n'etait jamais compte : l'ambiguite passait a cause de la casse."""
+    p = tmp_path / "casse.md"
+    p.write_text("<scope>\n- src/a/\n</scope>\n\n<SCOPE>- src/b/</SCOPE>\n", encoding="utf-8")
+    patterns, niveau = sg.extract_scope_patterns(p)
+    assert patterns == []
+    assert niveau == "perimetre-ambigu"
+    assert sg.run_check(p, ["src/b/x.py"])[0] == sg.EXIT_SANS_PERIMETRE
+
+
+INTERDICTIONS_HORS_GRAMMAIRE = [
+    ("titre markdown a cote de la section",
+     "<scope>\n  <écriture>\n    - src/\n  </écriture>\n\n  ## Interdit\n  - src/secrets/\n</scope>\n"),
+    ("marqueur dans la section d'ecriture",
+     "<scope>\n  <écriture>\n    - src/foo/\n    INTERDIT :\n    - src/secrets/\n  </écriture>\n</scope>\n"),
+    ("marqueur anglais",
+     "<scope>\n  <écriture>\n    - src/\n  </écriture>\n  FORBIDDEN:\n  - src/secrets/\n</scope>\n"),
+    ("lecture seule en toutes lettres",
+     "<scope>\n  <écriture>\n    - src/\n  </écriture>\n  LECTURE SEULE : src/secrets/\n</scope>\n"),
+]
+
+
+@pytest.mark.parametrize("nom,texte", INTERDICTIONS_HORS_GRAMMAIRE,
+                         ids=[n for n, _ in INTERDICTIONS_HORS_GRAMMAIRE])
+def test_une_interdiction_hors_grammaire_refuse_le_perimetre(tmp_path, nom, texte):
+    """Ces lignes etaient sautees en silence. L'interdiction disparaissait, et quand des
+    chemins la suivaient dans une section d'ecriture, ils devenaient des autorisations.
+    Une intention reconnue que la grammaire ne sait pas placer refuse."""
+    p = tmp_path / f"{abs(hash(nom))}.md"
+    p.write_text(texte, encoding="utf-8")
+    patterns, niveau = sg.extract_scope_patterns(p)
+    assert patterns == []
+    assert niveau == "interdiction-hors-grammaire"
+    assert sg.run_check(p, ["src/secrets/keys.py"])[0] == sg.EXIT_SANS_PERIMETRE

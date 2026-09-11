@@ -50,7 +50,7 @@ anyone who edits the lock can recompute it.
 and date in [`evidence/declared-metrics.md`](evidence/declared-metrics.md). You can read the
 method. You cannot run it against a system you do not have.
 
-The 128 shipped unit tests run in the same pass, 168 cases once the table-driven ones are
+The 140 shipped unit tests run in the same pass, 202 cases once the table-driven ones are
 expanded, and the script finishes by counting its own checks against the numbers printed on this
 page.
 
@@ -78,6 +78,14 @@ source dataset, how a judgement was derived and what was excluded. The reference
 is 18 engine configurations frozen in one file with an integrity hash. The regression policy was
 written before any result: primary metric `nDCG@10`, trigger delta 0.01, paired t-test, threshold
 0.05, and a failure declared only when a drop clears the delta **and** reaches significance.
+
+The gate produces a verdict only from quantities it can defend. A baseline whose seal is valid but
+whose payload cannot gate, a metric or p-value that is missing, non-numeric, non-finite or out of
+range, a collection that is not sealed, a corpus present locally with a hash the manifest does not
+recognise: each of those is a setup error and exits 2, never a pass. The last one is the reason the
+list exists. A drifted corpus is not an integrity problem, it is a comparability problem, and a
+gate that runs anyway compares the baseline's dataset against a different one and credits the
+difference to the system under test.
 
 ### The fine-tune whose score I have never read
 
@@ -127,10 +135,17 @@ moving a forbidden file into an allowed directory is refused rather than seen as
 listed as forbidden refuses even when a write rule would otherwise allow it, and a `*` matches
 inside one path segment, never across `/`.
 
-It exits 2 whenever the perimeter cannot be established: no scope block, several of them, a
-structured scope with no writing section, a block whose lines it cannot classify, or an enumeration
-of staged files that failed. Not being able to determine either the write perimeter or the full set
-of paths the commit mutates never grants permission.
+The grammar is explicit, because a string that can mean two things is not a permission.
+`src/foo/` is a directory and covers what is under it, `config/settings.json` is that file and
+nothing else, `reports/*.json` matches inside one path segment, and `**` is how you write a
+traversal. A path containing a space is written between backticks or it is refused, never
+truncated at the space into a shorter and broader prefix.
+
+It exits 2 whenever the perimeter cannot be established: no scope block, several of them in any
+casing, a structured scope with no writing section, a block whose lines it cannot classify, a path
+whose end it cannot determine, a forbidden section written in a form the grammar does not carry, or
+an enumeration of staged files that failed. Not being able to determine either the write perimeter
+or the full set of paths the commit mutates never grants permission.
 
     python3 scope_guard.py --prompt example/prompt_avec_scope.md --staged src/auth/session.py
 

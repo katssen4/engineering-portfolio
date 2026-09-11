@@ -45,10 +45,36 @@ construction everything it does not know, and the people writing these prompts a
 which vary the wording. It is a whitelist now, and `BLOCS_NON_INTERPRETABLES` in the tests carries
 the six shapes as a table.
 
-**Three rules the guard applies, and they are rules rather than patched cases.** A line the guard
-cannot classify refuses. A path under `<interdit>` refuses even when a write rule covers it, which
-is how anyone naturally writes "you may edit `src/ingestion/` except `secrets/`". And a `*` matches
-within one path segment; crossing a directory is written `**`, it is not inferred.
+**Rules rather than patched cases.** A line the guard cannot classify refuses. A path under
+`<interdit>` refuses even when a write rule covers it, which is how anyone naturally writes "you
+may edit `src/ingestion/` except `secrets/`". And a `*` matches within one path segment; crossing a
+directory is written `**`, it is not inferred.
+
+**A permission has a form, and the form is not guessed.** Three writings, three meanings:
+
+    src/foo/              a directory, and everything under it
+    config/settings.json  that file, and nothing else
+    reports/*.json        a match inside one path segment
+
+The third line of that table used to be the first two at once. `config/settings.json` also
+authorised `config/settings.json/evil.py`, because the path does start with
+`config/settings.json/`, and nothing stops a directory from being named `settings.json`. A file
+permission was silently a subtree permission. A directory now carries its trailing slash or it is
+not a directory.
+
+**A path containing a space is written between backticks, or it is refused.** The line was cut at
+the first space, so `docs/my file.md` became the permission `docs/my`, which opens a whole subtree
+the prompt never granted. An ambiguity in parsing was resolving into a *wider* permission. It now
+refuses, and `` `docs/my file.md` `` is how you declare the file. A trailing comment in parentheses
+still works, because a guard that refuses correct prompts is a guard that gets switched off.
+
+**An interdiction the grammar cannot place refuses.** `## Interdit` beside an `<écriture>` section,
+or `INTERDIT :` inside one, expresses an intention this parser cannot attach to anything. It used
+to be skipped, which both lost the interdiction and, when paths followed the marker inside a
+writing section, turned them into write permissions. That second case is the one the module
+docstring calls the most persistent in service, ten relapses over six sessions: it had been closed
+for the legacy format and was still open inside the structured grammar. Recognised and unplaceable
+now means the perimeter is not established.
 
 **A commit is not a list of destination paths.** `git diff --cached --name-only` detects renames and
 prints only the destination, so an agent could move a forbidden file into an allowed directory and

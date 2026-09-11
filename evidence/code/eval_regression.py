@@ -35,6 +35,7 @@ import importlib.util
 import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -196,6 +197,11 @@ def validate_lock_for_gate(payload: dict, collection: str) -> tuple[bool, str]:
         return (False, f"max_p is outside [0, 1]: {policy['max_p']!r}")
     if not isinstance(policy["require_significance"], bool):
         return (False, "require_significance is not a boolean")
+    # Presence was checked, support was not. An unsupported name passed the lock and blew
+    # up later on a KeyError at the point of use, which is a crash rather than a refusal.
+    if policy["stat_test"] not in _RANX_STAT_TEST_MAP:
+        return (False, f"unsupported stat_test {policy['stat_test']!r}: "
+                       f"known are {', '.join(sorted(_RANX_STAT_TEST_MAP))}")
 
     coll = payload.get("baselines", {}).get(collection)
     if not isinstance(coll, dict):
@@ -240,6 +246,13 @@ def is_regression(
     fail open. Changed 2026-09-10; the previous behaviour was documented and tested, and
     it was still the wrong default for a gate whose purpose is to refuse.
 
+    **Non-finite values raise too, since 2026-09-11.** Every comparison here is an
+    inequality, and every inequality against NaN is False in Python. A NaN current metric
+    therefore read as "did not drop past the delta", and a NaN p-value as "not
+    significant". Both answered "no regression" about a quantity that does not exist. The
+    rule is the same one this module already applies to a missing p-value: missing,
+    non-numeric, non-finite or out of range are all *cannot gate*, never *healthy*.
+
     **Scoring-regime guard (S31, ADR-0013 item 4 — the G9 path).** `current_tie_policy` and
     `baseline_tie_policy` are the regime markers of the two numbers. If they differ, the gate
     REFUSES to compare (`ScoringRegimeError`) rather than returning a verdict: a current
@@ -259,7 +272,28 @@ def is_regression(
         current_tie_policy, baseline_tie_policy, context="eval_regression.is_regression (G9)",
         current_is_legacy=current_is_legacy, baseline_is_legacy=baseline_is_legacy,
     )
+    # Comparison guard. Every comparison below is an inequality, and in Python every
+    # inequality involving NaN is False, silently. `float("nan") < 0.48` is False, so a
+    # NaN current metric read as "did not drop past the delta" and the gate answered
+    # "no regression" about a number that is not a number. Same for a NaN p-value on the
+    # significance leg: `nan < max_p` is False, so an unknown significance read as "not
+    # significant" and the drop was waved through. This is the same defect the p-value
+    # None case had, one type deeper, and it is fail-open in both directions.
+    for nom, valeur in (("current", current), ("baseline", baseline)):
+        if not isinstance(valeur, (int, float)) or isinstance(valeur, bool):
+            raise CannotGateError(f"{nom} metric is not a number: {valeur!r}")
+        if not math.isfinite(float(valeur)):
+            raise CannotGateError(f"{nom} metric is not finite: {valeur!r}")
+    if p_value is not None:
+        if not isinstance(p_value, (int, float)) or isinstance(p_value, bool):
+            raise CannotGateError(f"p-value is not a number: {p_value!r}")
+        if not math.isfinite(float(p_value)):
+            raise CannotGateError(f"p-value is not finite: {p_value!r}")
+        if not 0.0 <= float(p_value) <= 1.0:
+            raise CannotGateError(f"p-value is outside [0, 1]: {p_value!r}")
     delta_abs = float(policy.get("delta_abs", 0.0))
+    if not math.isfinite(delta_abs):
+        raise CannotGateError(f"delta_abs is not finite: {policy.get('delta_abs')!r}")
     dropped_past_delta = current < (baseline - delta_abs)
     if not dropped_past_delta:
         return False
@@ -326,6 +360,13 @@ def verify_manifest_hashes(
     manifest: dict, collection_id: str, view: str | None = ALL_VIEWS
 ) -> tuple[bool, str]:
     """Re-hash the collection's sealed *committed* files and compare to the manifest.
+
+    **This is the inspection helper, not the gating policy.** It answers "do the committed
+    anchors still match", and it is deliberately permissive about everything else: an
+    unsealed collection is skipped, a drifted regenerable corpus is a note. A caller that
+    is about to produce a *verdict* must use `manifest_status(...).peut_arbitrer()`
+    instead, which refuses all three. `main` inherited this permissiveness until
+    2026-09-11 and could gate on an unsealed manifest or a drifted corpus.
 
     Returns (ok, message). Unsealed collections (sealed=false) are skipped — there is
     nothing to gate on yet (placeholders).
@@ -400,6 +441,70 @@ def verify_manifest_hashes(
     return (True, msg)
 
 
+@dataclass(frozen=True)
+class ManifestStatus:
+    """What a manifest says about one collection, in four separate facts.
+
+    A single boolean was too coarse. `verify_manifest_hashes` answers an inspection
+    question, "do the committed anchors still match", and it answers it well. `main`
+    asked it a different question, "may I gate on this", and inherited the permissive
+    answer: an unsealed collection returned True with the words "hash verify skipped",
+    and a regenerable corpus present with a drifted hash returned True with a note.
+
+    Those two are not the same as a missing corpus. A missing corpus means the score
+    cannot be recomputed here. A corpus present with a different hash means the score
+    *can* be recomputed, on data the manifest says is not the data the baseline was
+    measured on. Gating then compares baseline(dataset A) against current(dataset B) and
+    attributes the difference to the system under test. That is not an integrity question,
+    it is a comparability question, and it is the one that makes a verdict meaningless.
+    """
+
+    sealed: bool
+    committed_mismatches: list[str]
+    regenerable_missing: list[str]
+    regenerable_mismatches: list[str]
+
+    def peut_arbitrer(self) -> tuple[bool, str]:
+        """Whether a regression verdict may be produced from this state."""
+        if not self.sealed:
+            return (False, "collection is not sealed: the run inputs are not established "
+                           "as the frozen protocol's")
+        if self.committed_mismatches:
+            return (False, f"committed file(s) drifted: {self.committed_mismatches}")
+        if self.regenerable_mismatches:
+            return (False, f"regenerable corpus present but drifted from the manifest: "
+                           f"{self.regenerable_mismatches}. Baseline and current would be "
+                           f"measured on different data.")
+        if self.regenerable_missing:
+            return (False, f"regenerable corpus absent locally: {self.regenerable_missing}. "
+                           f"Nothing to recompute against; regenerate and re-verify first.")
+        return (True, "inputs are the frozen protocol's")
+
+
+def manifest_status(manifest: dict, collection_id: str, view=ALL_VIEWS) -> ManifestStatus:
+    """The four facts above, read from the manifest and the working tree."""
+    entry = _collection_entry(manifest, collection_id)
+    if entry is None:
+        return ManifestStatus(False, [f"collection '{collection_id}' not in manifest"], [], [])
+    repo_root = Path(__file__).resolve().parents[2]
+    committed, manquants, derives = [], [], []
+    for file_entry in select_files(entry, view):
+        path = file_entry.get("path")
+        recorded = file_entry.get("sha256")
+        fpath = repo_root / path
+        if file_entry.get("regenerable", False):
+            if not fpath.exists():
+                manquants.append(path)
+            elif recorded and hashlib.sha256(fpath.read_bytes()).hexdigest() != recorded:
+                derives.append(path)
+            continue
+        if not recorded or not fpath.exists():
+            committed.append(path)
+        elif hashlib.sha256(fpath.read_bytes()).hexdigest() != recorded:
+            committed.append(path)
+    return ManifestStatus(bool(entry.get("sealed", False)), committed, manquants, derives)
+
+
 # ── Real run step (wired S3 B1 — GitBugs pilot slice) ────────────────────────────
 def run_current_metrics(manifest: dict, collection_id: str, seed: int, policy: dict) -> dict:
     """Run the current index -> query -> qrels -> metrics pipeline for a collection.
@@ -447,6 +552,12 @@ def _reseal(baseline_path: Path, session: str) -> int:
 
     The only sanctioned way to move the baseline (analogous to run_evals_baseline
     --session). Updates `session` and `integrity_hash`, leaves baselines as-is.
+
+    It validates before it signs, since 2026-09-11. Recomputing a hash over a payload that
+    cannot gate produces a file that is cryptographically impeccable and useless: the next
+    run refuses it, correctly, but the tool presented as the sanctioned way to move the
+    baseline has just stamped an invalid one as official. A seal means "this is the
+    baseline", not only "these are the bytes I was handed".
     """
     try:
         payload = _load_json(baseline_path)
@@ -455,6 +566,12 @@ def _reseal(baseline_path: Path, session: str) -> int:
         return EXIT_SETUP_ERROR
     if session:
         payload["session"] = session
+    for collection in sorted(payload.get("baselines", {})):
+        ok, message = validate_lock_for_gate(payload, collection)
+        if not ok:
+            print(f"[eval-regression] refusing to seal an unusable lock: {message}",
+                  file=sys.stderr)
+            return EXIT_SETUP_ERROR
     payload[_HASH_FIELD] = compute_integrity_hash(payload)
     baseline_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
@@ -522,6 +639,16 @@ def main(argv: list[str] | None = None) -> int:
     ok, message = verify_manifest_hashes(manifest, args.collection, view=args.view)
     if not ok:
         print(f"[eval-regression] manifest integrity error: {message}", file=sys.stderr)
+        return EXIT_SETUP_ERROR
+
+    # 2bis. Integrity is not comparability. The helper above is permissive by design: it
+    #       skips an unsealed collection and files a drifted regenerable corpus as a note.
+    #       Producing a verdict needs more than intact anchors, it needs the run inputs to
+    #       be the frozen protocol's. Otherwise the comparison is baseline(dataset A)
+    #       against current(dataset B), and the delta gets attributed to the system.
+    peut, pourquoi = manifest_status(manifest, args.collection, view=args.view).peut_arbitrer()
+    if not peut:
+        print(f"[eval-regression] cannot gate: {pourquoi}", file=sys.stderr)
         return EXIT_SETUP_ERROR
 
     # 3. Run current metrics. Wired for the B collections, exit 2 elsewhere.

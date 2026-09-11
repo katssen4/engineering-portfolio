@@ -67,8 +67,17 @@ def dit(ok: bool, texte: str) -> None:
 
 
 def charge_module():
+    """Charge evidence/code/eval_regression.py par son chemin.
+
+    Le module est inscrit dans `sys.modules` AVANT d'etre execute. `dataclasses` resout
+    ses annotations en allant chercher le module de la classe dans `sys.modules` ; sans
+    l'inscription, un `@dataclass` defini dans un module charge par son chemin fait
+    mourir l'import sur `AttributeError: 'NoneType' object has no attribute '__dict__'`,
+    et le verificateur perdait ses deux premieres sections sur une trace.
+    """
     spec = importlib.util.spec_from_file_location("eval_regression", MODULE)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -309,9 +318,9 @@ def verifie_tests() -> None:
     # `def test_` depuis que trois suites sont pilotees par table. Section 8 compte les
     # fonctions, celle-ci compte les cas : les deux chiffres sont differents et le
     # README dit lequel il annonce.
-    for cible, attendu in (("evidence/code/test_eval_regression.py", 50),
+    for cible, attendu in (("evidence/code/test_eval_regression.py", 68),
                            ("evidence/gates/tests/", 58),
-                           ("evidence/agent-governance/tests/", 60)):
+                           ("evidence/agent-governance/tests/", 76)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
