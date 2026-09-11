@@ -58,20 +58,30 @@ def code_du_domaine() -> str:
     return "\n".join(morceaux)
 
 
+# Puce Markdown : `-`, `*` ou `+`, eventuellement indentee.
+_PUCE = re.compile(r"^\s*[-*+]\s+")
+
+
 def lire_registre(texte: str) -> tuple[list[dict], list[str]]:
     """Rend (énoncés, lignes mal formées). Une ligne de puce qui ne suit pas le
     format est signalée : silencieusement l'ignorer viderait le registre sans
     que le compteur bouge."""
     enonces, malformees = [], []
     for brut in texte.splitlines():
-        # Une puce sans crochets etait ignoree sans un mot. Le docstring promet pourtant
-        # qu'un enonce sans categorie fait echouer le controle : il passait au travers,
-        # et un enonce ecrit sans categorie disparaissait du registre en silence.
-        if brut.startswith("- ") and not brut.startswith("- ["):
+        # La grammaire de puce etait implicite et etroite : seul `- ` en debut de ligne
+        # comptait. Une puce `* `, `+ `, ou simplement indentee de deux espaces, sortait du
+        # registre sans un mot, donc un changement purement typographique du fichier
+        # pouvait faire disparaitre un enonce sans qu'aucun controle bouge. Toutes les
+        # formes de puce Markdown sont reconnues depuis le 2026-09-11, et une puce
+        # reconnue qui ne porte pas de categorie est signalee au lieu d'etre sautee.
+        puce = _PUCE.match(brut)
+        if not puce:
+            continue
+        reste = brut[puce.end():]
+        if not reste.startswith("["):
             malformees.append(brut.strip())
             continue
-        if not brut.startswith("- ["):
-            continue
+        brut = "- " + reste
         if (m := LIGNE.match(brut)):
             enonces.append({"categorie": m["cat"].strip(),
                             "enonce": m["enonce"].strip(),

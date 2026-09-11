@@ -15,6 +15,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import scope_guard as sg  # noqa: E402
@@ -171,3 +173,163 @@ def test_plusieurs_blocs_scope_refusent(tmp_path):
     assert patterns == []
     assert niveau == "perimetre-ambigu"
     assert sg.run_check(p, ["src/b/x.py"])[0] == sg.EXIT_SANS_PERIMETRE
+
+
+# ── Le commit n'est pas une liste de chemins de destination ───────────────────
+#
+# Deux revues exterieures independantes ont trouve le meme contournement le 2026-09-11 :
+# `git diff --cached --name-only` detecte les renommages et n'affiche que la destination.
+# Un agent qui deplace un fichier interdit vers un chemin autorise sortait le fichier du
+# perimetre, et le garde declarait conforme. Les tests ci-dessous travaillent sur un vrai
+# depot git : le defaut vivait dans l'appel a git, pas dans la politique.
+
+
+def _depot(tmp_path, fichiers: dict[str, str]):
+    """Depot git jetable, un commit initial, rien d'indexe."""
+    import subprocess
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True,
+                       capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    for chemin, contenu in fichiers.items():
+        cible = tmp_path / chemin
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        cible.write_text(contenu, encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "init")
+    return git
+
+
+def test_un_renommage_depuis_un_chemin_interdit_est_refuse(tmp_path):
+    """Le P0 des deux revues. Le commit supprime `src/auth/session.py`, qui est en
+    <interdit>, en le deplacant vers un chemin autorise."""
+    git = _depot(tmp_path, {"src/auth/session.py": "logique\n" * 50})
+    (tmp_path / "src/ingestion/connectors").mkdir(parents=True)
+    git("mv", "src/auth/session.py", "src/ingestion/connectors/metrics.py")
+
+    staged = sg.get_staged_files(tmp_path)
+    assert "src/auth/session.py" in staged
+    assert "src/ingestion/connectors/metrics.py" in staged
+
+    code, hors, _ = sg.run_check(AVEC, staged)
+    assert code == sg.EXIT_DEPASSEMENT
+    assert hors == ["src/auth/session.py"]
+
+
+def test_un_renommage_dans_le_perimetre_passe(tmp_path):
+    """Le durcissement ne doit pas refuser un deplacement dont les deux cotes sont
+    autorises : sinon le garde devient impraticable et se fait contourner par principe."""
+    git = _depot(tmp_path, {"src/ingestion/connectors/__init__.py": "x\n"})
+    git("mv", "src/ingestion/connectors/__init__.py", "src/ingestion/connectors/metrics.py")
+    assert sg.run_check(AVEC, sg.get_staged_files(tmp_path))[0] == sg.EXIT_CONFORME
+
+
+def test_une_suppression_hors_perimetre_est_refusee(tmp_path):
+    """Supprimer est une ecriture. Elle l'etait deja avant le correctif, ce test le fige."""
+    git = _depot(tmp_path, {"src/auth/session.py": "x\n"})
+    git("rm", "-q", "src/auth/session.py")
+    code, hors, _ = sg.run_check(AVEC, sg.get_staged_files(tmp_path))
+    assert code == sg.EXIT_DEPASSEMENT
+    assert hors == ["src/auth/session.py"]
+
+
+def test_un_chemin_accentue_du_perimetre_n_est_pas_refuse_a_tort(tmp_path):
+    """Sans `-z`, git rend `"src/.../m\\303\\251triques.py"`, guillemets et echappement
+    octal compris. Le chemin ne correspondait alors a aucun motif et etait refuse a tort.
+    Un refus sans danger, mais bruyant dans un code en francais."""
+    _depot(tmp_path, {"src/ingestion/connectors/metrics.py": "x\n"})
+    (tmp_path / "src/ingestion/connectors/métriques.py").write_text("y\n", encoding="utf-8")
+    import subprocess
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
+    assert sg.get_staged_files(tmp_path) == ["src/ingestion/connectors/métriques.py"]
+
+
+def test_une_sortie_de_git_tronquee_leve_au_lieu_de_rendre_une_liste_partielle(monkeypatch):
+    """Un statut R sans ses deux chemins doit lever, pas rendre la moitie du renommage :
+    c'est la meme regle que l'echec d'enumeration, ne pas savoir n'autorise pas."""
+    import subprocess
+
+    class Sortie:
+        returncode = 0
+        stdout = "R100\0src/auth/session.py\0"   # la destination manque
+        stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Sortie())
+    with pytest.raises(sg.StagedFilesUnavailableError):
+        sg.get_staged_mutations()
+
+
+def test_un_repertoire_de_travail_absent_leve_au_lieu_de_planter(tmp_path):
+    """`git` lance hors d'un repertoire existant mourait sur une trace Python. Une trace
+    n'est pas un refus : elle se lit comme un silence, et c'est exactement le defaut que
+    l'audit interne du 2026-09-11 a trouve dans `verify.py`."""
+    with pytest.raises(sg.StagedFilesUnavailableError):
+        sg.get_staged_files(tmp_path / "pas-un-repertoire")
+
+
+# ── Trois regles de classe, en matrice ────────────────────────────────────────
+#
+# Les revues v4 et v5 font la meme remarque de fond : chaque iteration corrigeait le cas
+# signale, et la meme classe de defaut reapparaissait juste a cote. Un glob corrige pour les
+# placeholders mais pas pour les globs explicites, une liste noire de noms de sections au
+# lieu d'une liste blanche. Les trois matrices ci-dessous testent la regle, pas l'incident.
+
+
+BLOCS_NON_INTERPRETABLES = [
+    ("en-tete en majuscules", "- src/ingestion/metrics.py\nINTERDIT :\n- src/auth/"),
+    ("titre markdown", "- src/ingestion/metrics.py\n## Interdit\n- src/auth/"),
+    ("balise anglaise", "<read>\n- src/auth/\n</read>"),
+    ("balise composee", "<read-only>\n- src/auth/\n</read-only>"),
+    ("balise inconnue", "<perimetre-lecture>\n- src/auth/\n</perimetre-lecture>"),
+    ("phrase libre", "Tu peux ecrire dans src/ingestion/\n- src/auth/"),
+]
+
+
+@pytest.mark.parametrize("nom,bloc", BLOCS_NON_INTERPRETABLES,
+                         ids=[n for n, _ in BLOCS_NON_INTERPRETABLES])
+def test_un_bloc_non_interpretable_refuse_au_lieu_d_autoriser(tmp_path, nom, bloc):
+    """Liste blanche : ce que le garde ne sait pas classer, il le refuse. La liste noire
+    precedente laissait passer par construction tout nom de section qu'elle ignorait, et
+    les rediger des prompts sont souvent des agents, qui varient les noms."""
+    p = tmp_path / f"{abs(hash(nom))}.md"
+    p.write_text(f"# W\n\n<scope>\n{bloc}\n</scope>\n", encoding="utf-8")
+    assert sg.extract_scope_patterns(p)[0] == []
+    assert sg.run_check(p, ["src/auth/session.py"])[0] == sg.EXIT_SANS_PERIMETRE
+
+
+@pytest.mark.parametrize("ecriture", ["src/ingestion/", "src/ingestion/*.py",
+                                      "src/ingestion/**"])
+def test_un_chemin_interdit_refuse_meme_sous_une_autorisation(tmp_path, ecriture):
+    """Le refus l'emporte. « Tu peux modifier src/ingestion/ sauf secrets/ » est la facon
+    naturelle d'ecrire une exception, et <interdit> n'etait qu'une absence d'autorisation."""
+    p = tmp_path / "exception.md"
+    p.write_text(
+        f"# W\n\n<scope>\n  <écriture>\n    - {ecriture}\n  </écriture>\n"
+        "  <interdit>\n    - src/ingestion/secrets/\n  </interdit>\n</scope>\n",
+        encoding="utf-8")
+    assert sg.run_check(p, ["src/ingestion/secrets/keys.py"])[0] == sg.EXIT_DEPASSEMENT
+    assert sg.run_check(p, ["src/ingestion/ok.py"])[0] == sg.EXIT_CONFORME
+
+
+MOTIFS = [
+    ("reports/*.json", "reports/a.json", True),
+    ("reports/*.json", "reports/private/secret.json", False),
+    ("reports/**/*.json", "reports/private/secret.json", True),
+    ("reports/W3_<TS>.json", "reports/W3_2026-09-11.json", True),
+    ("reports/W3_<TS>.json", "reports/W3_x/nested/any.json", False),
+    ("src/a?.py", "src/ab.py", True),
+    ("src/a?b.py", "src/a/b.py", False),
+    ("src/foo/", "src/foo/profond/a.py", True),
+]
+
+
+@pytest.mark.parametrize("motif,chemin,attendu", MOTIFS,
+                         ids=[f"{m}~{c}" for m, c, _ in MOTIFS])
+def test_un_joker_ne_franchit_jamais_un_separateur(motif, chemin, attendu):
+    """Meme regle pour les placeholders et pour les globs explicites : `*` designe un
+    fragment de nom. La traversee d'arborescence s'ecrit `**`, elle ne se devine pas."""
+    assert sg.file_matches_scope(chemin, [motif]) is attendu

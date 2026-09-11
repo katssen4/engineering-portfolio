@@ -20,7 +20,18 @@ import re
 import sys
 from decimal import Decimal, InvalidOperation
 
-# Mots qui commencent une phrase ou un titre et ne sont pas des noms propres.
+# Mots structurels : ouvertures de phrase, de titre et de lettre. Ce ne sont pas des noms
+# propres, et ils ne dependent d'aucun dossier.
+#
+# Un mot echappe au signalement pour deux raisons tres differentes : parce qu'il est
+# grammatical, ou parce que le fait qu'il nomme est autorise par le contexte. Fusionner les
+# deux categories dans une seule liste globale rend la porte aveugle : « Nantes » et
+# « Ariane » y figuraient en dur, donc une variante annoncant « Based in Nantes » alors que
+# le socle ne porte aucune localisation passait sans un mot. Le README promet pourtant que
+# les elements personnels sont devenus des parametres. Trouve par une revue le 2026-09-11.
+#
+# Les faits, les lieux, les noms de produit, d'entreprise et de personne entrent
+# exclusivement par `--banals`, quand l'appelant declare qu'ils sont autorises.
 BANALS = {"The", "A", "An", "In", "It", "Since", "Then", "Built", "How", "What", "Stated",
           "Seven", "Outside", "Technical", "Delivery", "Contributed", "Dedicated", "Server",
           "Access", "Enterprise", "Hybrid", "Designed", "Systems", "Ten", "Native", "French",
@@ -28,10 +39,7 @@ BANALS = {"The", "A", "An", "In", "It", "Since", "Then", "Built", "How", "What",
           "Applied", "Platforms", "Deployed", "Median", "Sustained", "Behaviour", "Recovery", "Le", "La", "Les", "Un", "Une", "Des", "Ce", "Cela", "Depuis",
           "Puis", "Support", "Conduite", "Construction", "Contribution", "Propriétaire", "Sept",
           "Hors", "Recherche", "Contrôle", "Connecteurs", "Chaîne", "Comment", "Dit", "Ingénieur",
-          "Nantes", "Compétences", "Certifications", "Langues", "Expérience", "Autres", "Harnais",
-          # Noms propres du domaine et identite de l'auteur : a renseigner par l'appelant,
-          # via --banals, plutot qu'a coder en dur. Les trois ci-dessous sont un exemple.
-          "Ariane", "Alex", "Doe",
+          "Compétences", "Certifications", "Langues", "Expérience", "Autres", "Harnais",
           # ouvertures de phrase et de lettre : ce ne sont pas des faits
           "Hello", "Bonjour", "Here", "Before", "Your", "Votre", "That", "Those", "There",
           "After", "About", "With", "For", "You", "Two", "One", "Three", "Deux", "Trois",
@@ -42,8 +50,12 @@ BANALS = {"The", "A", "An", "In", "It", "Since", "Then", "Built", "How", "What",
 def charger_banals(argv) -> set:
     """Mots supplementaires a ne pas traiter comme des noms propres.
 
+    C'est par ici qu'entrent les noms propres du dossier : lieu, produit, entreprise,
+    identite de l'auteur. Ils ne sont pas codes en dur, sinon la porte cesse de voir une
+    localisation ou un nom de produit inventes.
+
     Usage : --banals "Ariane,Alex,Doe" ou --banals fichier.txt (un mot par ligne).
-    Sans l'option, seule la liste BANALS ci-dessus s'applique.
+    Sans l'option, seule la liste structurelle BANALS ci-dessus s'applique.
     """
     if "--banals" not in argv:
         return set()
@@ -79,15 +91,24 @@ MOTS_MULTIPLICATEURS = {
 _UNITE = "|".join(sorted((re.escape(u) for u in UNITES), key=len, reverse=True))
 _MILLIERS = re.compile(r"^\d{1,3}(?:[\u202f\u00a0 .,]\d{3})+$")
 _DECIMAL = re.compile(r"^\d+[.,]\d+$")
+# Les devises s'ecrivent devant le nombre en anglais, derriere en francais. Sans le
+# prefixe, « $5 » et « €5 » se normalisaient tous deux en « 5 » : la porte ne voyait plus la
+# difference entre un montant en dollars et le meme chiffre en euros. Releve le 2026-09-11.
+_DEVISE_PREFIXE = r"[$£€¥]"
 _NOMBRE = re.compile(
+    r"(?P<devise>" + _DEVISE_PREFIXE + r")?"
     r"(?P<signe>[-+\u2212])?"
     r"(?P<corps>\d[\d\u202f\u00a0 .,]*\d|\d)"
     r"(?:\s(?P<motmult>" + "|".join(sorted(MOTS_MULTIPLICATEURS, key=len, reverse=True)) + r")\b"
     r"|(?P<mult>[kKMGT])(?![\w])|\s?(?P<unite>" + _UNITE + r"))?(?![\w.,])")
 
 
+_DEVISE_UNITE = {"$": "USD", "£": "GBP", "€": "EUR", "¥": "JPY",
+                 "USD": "USD", "GBP": "GBP", "EUR": "EUR", "JPY": "JPY"}
+
+
 def _canonique(signe: str, corps: str, unite: str, mult: str = "",
-               motmult: str = "") -> str:
+               motmult: str = "", devise: str = "") -> str:
     """Une ecriture par valeur, pour que « 90,000 » et « 90000 » se confondent et que
     « 5.0 » et « 50 » ne se confondent pas.
 
@@ -114,7 +135,15 @@ def _canonique(signe: str, corps: str, unite: str, mult: str = "",
     except InvalidOperation:
         valeur = brut
     signe = "-" if signe in ("-", "\u2212") else ""
-    return signe + valeur + (unite or "")
+    # Une devise en prefixe entre dans la cle au meme titre qu'une unite en suffixe, et sous
+    # le meme nom : « $5 » et « 5 USD » designent la meme chose, « $5 » et « €5 » non.
+    suffixe = _DEVISE_UNITE.get(unite or "", unite or "")
+    if devise:
+        prefixe = _DEVISE_UNITE[devise]
+        if suffixe and suffixe != prefixe:
+            return signe + valeur + prefixe + suffixe
+        suffixe = prefixe
+    return signe + valeur + suffixe
 
 
 def nombres(t: str) -> dict:
@@ -127,7 +156,8 @@ def nombres(t: str) -> dict:
     cles = {}
     for m in _NOMBRE.finditer(t):
         cle = _canonique(m.group("signe"), m.group("corps"), m.group("unite"),
-                         m.group("mult") or "", m.group("motmult") or "")
+                         m.group("mult") or "", m.group("motmult") or "",
+                         m.group("devise") or "")
         cles.setdefault(cle, m.group(0).strip())
     return cles
 

@@ -5,8 +5,16 @@ exception: the dispatch layer and the commit broker of section 2 are described a
 and the README says so where it says it.
 
 The evidence directories hold the original artefacts wherever they can be published safely,
-copied out of the bench that produced them, with absolute paths made relative and nothing else
-changed. The README files, this one included, exist only for navigation and context.
+copied out of the bench that produced them, with absolute paths made relative. The README files,
+this one included, exist only for navigation and context.
+
+One exception, and it is written here rather than left to be discovered. Two paragraphs of
+`evidence/code/eval_regression.py` described behaviour the file no longer had: one said the
+gate failed open when significance was required and no p-value was available, which stopped
+being true weeks earlier, and one still called the retrieval run stubbed. Both were corrected
+on 2026-09-11, in place, each with the date and the reason in the text. The alternative was to
+leave a copy that contradicted the code it was evidence for, which is worse than a copy that
+says where it was edited. Nothing else in `evidence/code/` differs from the bench.
 
 Start here:
 

@@ -243,3 +243,65 @@ def test_une_cle_trop_courte_est_refusee(tmp_path, journal, monkeypatch):
     monkeypatch.setenv("AUDIT_HMAC_STRICT", "1")
     with pytest.raises(ac.HMACKeyMissingError):
         ac.append_event("agent.start", {}, session="S1", events_path=journal)
+
+
+# ── Les lecteurs : chemin obligatoire, corruption jamais silencieuse ──────────
+#
+# Artefact de reduction trouve le 2026-09-11 : `append_event` et `verify_chain` avaient ete
+# nettoyes pour rendre le chemin obligatoire dans l'extrait, les deux lecteurs avaient garde
+# un repli sur `events_jsonl()`, un resolveur du harnais complet qui n'existe pas ici. Tout
+# appel sans chemin explicite mourait sur un NameError.
+
+
+def test_read_events_exige_un_chemin():
+    with pytest.raises(ValueError):
+        list(ac.read_events())
+
+
+def test_read_last_n_events_exige_un_chemin():
+    with pytest.raises(ValueError):
+        ac.read_last_n_events()
+
+
+def test_un_lecteur_ne_saute_pas_une_ligne_corrompue_en_silence(tmp_path):
+    """Une vue qui omet ce qu'elle n'a pas su lire presente une histoire partielle comme
+    si elle etait entiere. Dans un journal d'audit, le silence est le mauvais defaut."""
+    journal = tmp_path / "events.jsonl"
+    journal.write_text('{"event_kind": "a"}\n{ceci n\'est pas du json}\n{"event_kind": "b"}\n',
+                       encoding="utf-8")
+    with pytest.raises(ac.AuditTrailCorruptError):
+        list(ac.read_events(events_jsonl_path=journal))
+    with pytest.raises(ac.AuditTrailCorruptError):
+        ac.read_last_n_events(events_jsonl_path=journal)
+
+
+def test_un_lecteur_non_strict_saute_mais_il_faut_le_demander(tmp_path):
+    """Le comportement permissif reste disponible, il cesse d'etre le defaut."""
+    journal = tmp_path / "events.jsonl"
+    journal.write_text('{"event_kind": "a"}\n{casse}\n{"event_kind": "b"}\n', encoding="utf-8")
+    assert len(list(ac.read_events(events_jsonl_path=journal, strict=False))) == 2
+    assert len(ac.read_last_n_events(events_jsonl_path=journal, strict=False)) == 2
+
+
+def test_une_cle_remplacee_par_un_lien_symbolique_est_refusee(tmp_path, monkeypatch):
+    """Un lien symbolique fait lire une cle que le proprietaire du chemin n'a pas posee,
+    sans que le chemin declare change. Refuse, contrairement aux bits de permission, qui
+    ne veulent rien dire sur un montage Windows et dont la limite est ecrite au README."""
+    vraie = tmp_path / "ailleurs.key"
+    vraie.write_bytes(b"k" * 64)
+    lien = tmp_path / "audit.key"
+    try:
+        lien.symlink_to(vraie)
+    except (OSError, NotImplementedError):
+        pytest.skip("les liens symboliques ne sont pas disponibles ici")
+    monkeypatch.setenv("AUDIT_HMAC_KEY_PATH", str(lien))
+    with pytest.raises(ac.HMACKeyMissingError):
+        ac._load_key_or_none()
+
+
+def test_une_cle_ordinaire_de_taille_suffisante_est_acceptee(tmp_path, monkeypatch):
+    """Le temoin du test precedent : c'est bien le lien qui est refuse, pas le contenu."""
+    cle = tmp_path / "audit.key"
+    cle.write_bytes(b"k" * 64)
+    monkeypatch.setenv("AUDIT_HMAC_KEY_PATH", str(cle))
+    assert ac._load_key_or_none() == b"k" * 64

@@ -31,7 +31,7 @@ that workflow, which is what section 2 is about, and the commit history here sho
     python3 -m pip install -r requirements-ci.txt
     python3 tools/verify.py
 
-52 checks. Once its one test dependency is installed the run touches no network and downloads no
+56 checks. Once its one test dependency is installed the run touches no network and downloads no
 corpus. GitHub runs it on every push, which is what the badge reports. Hand it a truncated run file
 and it names the malformed line and stops, instead of dying on a stack trace.
 
@@ -50,8 +50,9 @@ anyone who edits the lock can recompute it.
 and date in [`evidence/declared-metrics.md`](evidence/declared-metrics.md). You can read the
 method. You cannot run it against a system you do not have.
 
-The 97 shipped unit tests run in the same pass, and the script finishes by counting its own checks
-against the numbers printed on this page.
+The 128 shipped unit tests run in the same pass, 168 cases once the table-driven ones are
+expanded, and the script finishes by counting its own checks against the numbers printed on this
+page.
 
 ---
 
@@ -120,15 +121,24 @@ Two mechanisms from my development harness are shipped and tested in
 harness, which is 32,159 lines across 126 Python files.
 
 **What may the agent write.** Every worker prompt declares the paths it may write. A guard compares
-that declaration to the staged files before the commit and exits 1 on anything outside. It exits 2
-whenever the perimeter cannot be established: no scope block, several of them, a structured scope
-with no writing section, or an enumeration of staged files that failed. Not being able to determine
-a perimeter never grants one.
+that declaration to the paths the staged commit mutates, and exits 1 on anything outside. A commit
+is not a list of destination paths: a rename is two positions, and both go through the policy, so
+moving a forbidden file into an allowed directory is refused rather than seen as a create. A path
+listed as forbidden refuses even when a write rule would otherwise allow it, and a `*` matches
+inside one path segment, never across `/`.
+
+It exits 2 whenever the perimeter cannot be established: no scope block, several of them, a
+structured scope with no writing section, a block whose lines it cannot classify, or an enumeration
+of staged files that failed. Not being able to determine either the write perimeter or the full set
+of paths the commit mutates never grants permission.
 
     python3 scope_guard.py --prompt example/prompt_avec_scope.md --staged src/auth/session.py
 
     [scope_guard] COMMIT REFUSE : 1 fichier(s) hors perimetre
         src/auth/session.py
+
+The tools speak French, the pages about them speak English. The line above is the real output,
+transcribed rather than translated.
 
 **What can be checked afterwards.** An application-level append-only writer, chaining records by
 SHA-256 and authenticating each with HMAC-SHA256 under an exclusive lock. Modifying or reordering
@@ -220,7 +230,7 @@ its source, hypotheses are marked as such, and negative results are archived lik
 Systems and integration engineer, eight years in regulated banking on one recurring job: taking a
 solution designed elsewhere and making it hold inside a real enterprise environment. Today I am
 technical owner of a multi-tenant provisioning platform at the infrastructure arm of a French
-banking group, covering 3 banking platforms and more than 200,000 lines.
+banking group, covering 3 banking platforms and more than 200,000 telephony lines.
 
 - Site: [labo-llm.fr](https://labo-llm.fr)
 - LinkedIn: [matteo-l-35116a17a](https://www.linkedin.com/in/matteo-l-35116a17a/)

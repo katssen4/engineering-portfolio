@@ -744,7 +744,13 @@ def test_main_exits_SETUP_ERROR_on_a_mixed_regime(tmp_path, monkeypatch, capsys)
     payload = {
         "schema": "ariane_baseline_lock_1.0",
         "session": "S31",
-        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01},
+        "sealed": True,
+        # Complete policy, like the shipped lock. These fixtures carried a four-field
+        # policy until 2026-09-11, when validate_lock_for_gate started asking whether a
+        # lock can gate at all: they described a lock nobody could have gated with.
+        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01,
+                              "require_significance": True, "max_p": 0.05,
+                              "stat_test": "paired-t"},
         "system": {"seed": 13},
         # No tie_policy here — exactly like the real lock, i.e. pre-regime.
         "baselines": {"B": {"ndcg@10": 0.489051, "n_queries": 302}},
@@ -772,7 +778,13 @@ def test_main_gates_normally_when_both_sides_are_one_regime(tmp_path, monkeypatc
     payload = {
         "schema": "ariane_baseline_lock_1.0",
         "session": "S31",
-        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01},
+        "sealed": True,
+        # Complete policy, like the shipped lock. These fixtures carried a four-field
+        # policy until 2026-09-11, when validate_lock_for_gate started asking whether a
+        # lock can gate at all: they described a lock nobody could have gated with.
+        "regression_policy": {"primary_metric": "ndcg@10", "delta_abs": 0.01,
+                              "require_significance": True, "max_p": 0.05,
+                              "stat_test": "paired-t"},
         "system": {"seed": 13},
         "baselines": {"B": {"ndcg@10": 0.489051, "n_queries": 302}},
     }
@@ -791,3 +803,90 @@ def test_main_gates_normally_when_both_sides_are_one_regime(tmp_path, monkeypatc
     rc = er.main(["--baseline", str(lock), "--manifest", str(manifest), "--collection", "B"])
     assert rc == er.EXIT_OK
     assert "tie_policy=" in capsys.readouterr().out
+
+
+# ── Integrity is not validity ───────────────────────────────────────────────────
+#
+# verify_lock proves the payload is the one that was sealed. It does not prove the payload
+# can gate anything. An outside review on 2026-09-11 followed the second question through
+# main() and found `coll_baseline.get(primary_metric, 0.0)`: a lock whose collection entry
+# has no primary metric was read as a baseline of zero, and any current score then looked
+# like an improvement. A missing baseline must be a setup error, never a verdict.
+
+
+def _gateable_lock() -> dict:
+    """A lock that has everything a gate needs. Each test below removes one thing."""
+    return {
+        "schema": "ariane_baseline_lock_1.0",
+        "sealed": True,
+        "regression_policy": {
+            "primary_metric": "ndcg@10",
+            "delta_abs": 0.01,
+            "require_significance": True,
+            "max_p": 0.05,
+            "stat_test": "paired-t",
+        },
+        "baselines": {"B": {"ndcg@10": 0.489051, "n_queries": 302}},
+    }
+
+
+def test_a_complete_lock_is_gateable():
+    ok, message = er.validate_lock_for_gate(_gateable_lock(), "B")
+    assert ok, message
+
+
+def test_the_shipped_lock_is_gateable():
+    """The lock this repository actually ships must pass its own schema check."""
+    shipped = json.loads(
+        (Path(__file__).resolve().parents[1] / "retrieval" / "baseline_lock.json")
+        .read_text(encoding="utf-8"))
+    ok, message = er.validate_lock_for_gate(shipped, "B")
+    assert ok, message
+
+
+AMPUTATIONS = [
+    ("primary metric absent from the baseline",
+     lambda d: d["baselines"]["B"].pop("ndcg@10")),
+    ("primary metric non-numeric",
+     lambda d: d["baselines"]["B"].__setitem__("ndcg@10", "0.48")),
+    ("primary metric not finite",
+     lambda d: d["baselines"]["B"].__setitem__("ndcg@10", float("nan"))),
+    ("n_queries absent", lambda d: d["baselines"]["B"].pop("n_queries")),
+    ("n_queries zero", lambda d: d["baselines"]["B"].__setitem__("n_queries", 0)),
+    ("collection absent", lambda d: d["baselines"].pop("B")),
+    ("policy field absent", lambda d: d["regression_policy"].pop("max_p")),
+    ("delta_abs negative",
+     lambda d: d["regression_policy"].__setitem__("delta_abs", -0.01)),
+    ("max_p outside [0,1]",
+     lambda d: d["regression_policy"].__setitem__("max_p", 1.5)),
+    ("require_significance not a boolean",
+     lambda d: d["regression_policy"].__setitem__("require_significance", "yes")),
+    ("lock not sealed", lambda d: d.__setitem__("sealed", False)),
+    ("no schema declared", lambda d: d.pop("schema")),
+]
+
+
+@pytest.mark.parametrize("nom,amputer", AMPUTATIONS, ids=[n for n, _ in AMPUTATIONS])
+def test_a_hash_valid_but_incomplete_lock_cannot_gate(nom, amputer):
+    """Each of these payloads can be resealed and will pass verify_lock. None of them
+    can produce a verdict, and the gate must say so rather than assume a zero."""
+    lock = _gateable_lock()
+    amputer(lock)
+    ok, message = er.validate_lock_for_gate(lock, "B")
+    assert not ok, f"{nom} should not be gateable"
+    assert message
+
+
+def test_an_incomplete_lock_is_still_hash_valid(tmp_path):
+    """The point of the previous test: integrity and validity are different questions.
+    This lock has no primary metric and its seal is perfectly good."""
+    lock = _gateable_lock()
+    lock["baselines"]["B"].pop("ndcg@10")
+    lock["integrity_hash"] = er.compute_integrity_hash(lock)
+    chemin = tmp_path / "baseline_lock.json"
+    chemin.write_text(json.dumps(lock), encoding="utf-8")
+
+    ok, _ = er.verify_lock(chemin)
+    assert ok, "the seal is valid"
+    ok, _ = er.validate_lock_for_gate(lock, "B")
+    assert not ok, "and the lock still cannot gate"

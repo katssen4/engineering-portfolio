@@ -16,6 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pytest  # noqa: E402
+
 import anti_invention as ai  # noqa: E402
 
 EXEMPLE = Path(__file__).resolve().parent.parent / "example"
@@ -132,3 +134,53 @@ def test_limite_une_omission_de_reserve_passe():
         assert r.returncode == 0
     finally:
         tmp.unlink(missing_ok=True)
+
+
+# ── Un mot est banal pour deux raisons, et il ne faut pas les confondre ───────
+#
+# Un mot echappe au signalement parce qu'il est grammatical, ou parce que le fait qu'il
+# nomme est autorise par le dossier. La liste globale melangeait les deux : « Nantes »,
+# « Ariane », « Alex » et « Doe » y etaient codes en dur, donc une localisation ou un nom
+# de produit inventes passaient sans un mot. Releve le 2026-09-11.
+
+
+FAITS_QUI_NE_SONT_PAS_BANALS = ["Nantes", "Ariane", "Alex", "Doe"]
+
+
+@pytest.mark.parametrize("mot", FAITS_QUI_NE_SONT_PAS_BANALS)
+def test_un_fait_du_dossier_n_est_pas_un_mot_structurel(mot):
+    assert mot not in ai.BANALS, (
+        f"« {mot} » est un fait, il entre par --banals quand le dossier l'autorise")
+
+
+def test_une_localisation_absente_du_socle_est_signalee():
+    """Le cas concret : le socle ne porte aucune localisation, la variante en annonce une."""
+    assert "nantes" in {n.lower() for n in ai.noms("Based in Nantes.")}
+
+
+def test_un_fait_declare_par_l_appelant_cesse_d_etre_signale(monkeypatch):
+    """La porte reste utilisable : ce qui est autorise se declare, il ne se devine pas.
+    `noms` lit BANALS au moment de l'appel, exactement comme le fait le point d'entree."""
+    autorises = ai.charger_banals(["--banals", "Nantes,Ariane"])
+    monkeypatch.setattr(ai, "BANALS", ai.BANALS | autorises)
+    trouves = ai.noms("Based in Nantes, on Ariane.")
+    assert "nantes" not in trouves
+    assert "ariane" not in trouves
+
+
+# ── Une devise en prefixe appartient au nombre ───────────────────────────────
+
+
+DEVISES = [
+    ("$5", "€5", False),      # meme chiffre, devises differentes
+    ("$5", "5 $", True),      # meme montant, symbole devant ou derriere
+    ("€5", "5 €", True),
+    ("$5", "$5", True),
+]
+
+
+@pytest.mark.parametrize("a,b,identiques", DEVISES, ids=[f"{a}~{b}" for a, b, _ in DEVISES])
+def test_deux_montants_ne_se_confondent_pas_par_leur_seul_chiffre(a, b, identiques):
+    """« $5 » et « €5 » se normalisaient tous deux en « 5 » : une variante pouvait changer
+    la devise d'un montant sans que la porte voie un jeton nouveau."""
+    assert (set(ai.nombres(a)) == set(ai.nombres(b))) is identiques

@@ -37,15 +37,43 @@ meant to block, silently.
 
 That is why the version in service carries five extraction levels instead of one. Each was added
 after an agent found a prompt shape the previous level could not see; the most persistent case
-took ten occurrences over six sessions. This extract keeps two of those levels, plus a rule that the whole-block fallback never applies
-to a scope that carries any known section at all. The case is locked
-down by `test_le_bloc_entier_n_est_pas_un_perimetre`, which fails if the fallback ever returns.
+took ten occurrences over six sessions. This extract keeps two of those levels, plus a rule that
+the whole-block fallback applies only to a block whose every line is a path. That rule started as a
+blacklist of section names, which two reviews broke on 2026-09-11 with four spellings it had never
+heard of: `## Interdit`, a bare `INTERDIT :`, `<read>` and `<read-only>`. A blacklist admits by
+construction everything it does not know, and the people writing these prompts are usually agents,
+which vary the wording. It is a whitelist now, and `BLOCS_NON_INTERPRETABLES` in the tests carries
+the six shapes as a table.
+
+**Three rules the guard applies, and they are rules rather than patched cases.** A line the guard
+cannot classify refuses. A path under `<interdit>` refuses even when a write rule covers it, which
+is how anyone naturally writes "you may edit `src/ingestion/` except `secrets/`". And a `*` matches
+within one path segment; crossing a directory is written `**`, it is not inferred.
+
+**A commit is not a list of destination paths.** `git diff --cached --name-only` detects renames and
+prints only the destination, so an agent could move a forbidden file into an allowed directory and
+the guard would see a legitimate create. Both reviews of 2026-09-11 found this independently, on the
+same commit. The guard now reads `--name-status -z` and puts both sides of a rename through the
+policy: for a permission gate, deleting and moving are writes like any other. `-z` came with it,
+because without it git quotes and octal-escapes non-ASCII paths, and an accented filename inside the
+perimeter was refused on its spelling.
 
 ## `audit_chain.py` : an append-only log you cannot quietly rewrite
 
 Each event carries the SHA-256 of the previous record and an HMAC-SHA256 of its own canonical
 serialisation. Modifying or reordering records, or deleting one that still has a successor, breaks
 the chain, and `verify_chain` names the record.
+
+**Neither the readers nor the writer speak in silence.** A line of the log that is not valid JSON
+raises rather than being skipped: a view that omits what it could not read presents a partial
+history as if it were whole, which in an audit trail is the wrong default. `verify_chain` always
+detected that corruption, but nothing forced a caller through it before displaying a log.
+
+**A failed `fsync` means the durability is unknown, not that nothing was written.** The call raises
+`AuditDurabilityError`, and the bytes may already be in the page cache or on the filesystem. A
+caller that retries can therefore produce two semantically identical events. That is the ordinary
+semantics of a durability failure after a write, and it is written here because the alternative
+reading, "the append definitely did not happen", is the one that costs you an event.
 
 **Truncating the tail does not.** A valid prefix of a chain is a valid chain: nothing inside the
 file says the removed records ever existed. Detecting that needs a commitment to the expected head
@@ -62,14 +90,23 @@ processes appending ten records each, verified as one linear chain, ships as a t
 process with write permission can still truncate or replace the file. What the chain gives is
 detection of some of that, named precisely above.
 
+The key must be a regular file, and a symlink in its place is refused: a symlink substitutes a key
+without changing the declared path. What is deliberately not checked is whether other accounts can
+read the key. Permission bits carry no meaning on a Windows mount, and a check that refuses wrongly
+on the author's own machine is a check that gets switched off. The property "someone else cannot
+simply read the key" therefore rests on the workstation, not on this code.
+
 Without a key the HMAC degenerates to a constant, and the chain proves only that nobody edited
 it carelessly. The strict mode is therefore the default and it fails closed: no key means the
 log refuses to be written and refuses to be verified, instead of producing an audit trail that
 looks like evidence and is not.
 
 **What this does not protect against, stated because it matters.** The key sits on the same
-workstation as the agents. The chain is evidence against a careless agent, a crashed write, and
-a later edit by someone without the key. It is not evidence against me. A log signed with a key
+workstation as the agents. The chain is evidence against a careless agent, a partially persisted
+or malformed tail, and a later edit by someone without the key. It said "a crashed write" until
+2026-09-11, which was one word too broad: a crash that loses the last append entirely leaves a
+valid prefix, and a valid prefix reads clean. That is the same limit as tail truncation, and it
+has the same cause, no external commitment to the head. It is not evidence against me. A log signed with a key
 its own author holds proves integrity, not innocence, and the two get confused often enough that
 it is worth writing down. `test_en_mode_degrade_une_modification_passe_le_hmac` ships that limit
 as a passing test.

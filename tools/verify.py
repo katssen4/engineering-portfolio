@@ -10,16 +10,22 @@ Run it from the repository root:
 
     python3 tools/verify.py
 
-It does five things and prints what it found:
+It prints what it found, section by section. The number of sections is not written here:
+this docstring announced five of them while the script ran eight, which is the documentation
+drift that section 8 was written to catch elsewhere. Section 8 now counts the sections too.
 
 1. Verifies the seal on the reference lock, by recomputing its SHA-256 with the same
    function the bench uses (evidence/code/eval_regression.py).
 2. Rebuilds the retrieval table of README.md from the lock, and compares it cell by cell
    to what the README actually prints.
 3. Reads the blocked fine-tune decision and checks the control really failed.
-4. Runs the anti-invention gate on the example documents that ship with it, and checks it
-   passes the honest one and refuses the one carrying an invention.
-5. Runs the shipped unit tests, if pytest is available.
+4. Recomputes the control score from the TREC files, and checks the run file and the
+   judgements describe the same set of queries.
+5. Runs the anti-invention gate and the proof register on the example documents that ship
+   with them, and checks they pass the honest one and refuse the one carrying an invention.
+6. Runs the governance mechanisms on their own example data, and checks they refuse.
+7. Runs the shipped unit tests, if pytest is available.
+8. Counts the checks, the sections and the tests, and compares them to what the README says.
 
 Exit code 0 when everything agrees, 1 otherwise. Standard library, plus pytest for the
 unit-test step, which names the missing dependency rather than failing obscurely.
@@ -55,7 +61,7 @@ def titre(n: int, texte: str) -> None:
 def dit(ok: bool, texte: str) -> None:
     global controles
     controles += 1
-    print(f"   {'OK  ' if ok else 'ECHEC'} {texte}")
+    print(f"   {'OK  ' if ok else 'FAIL'} {texte}")
     if not ok:
         echecs.append(texte)
 
@@ -171,7 +177,25 @@ def verifie_recalcul() -> None:
             malformees.append(f"B_holdout_base_run.trec:{n}")
             continue
         q, _, d, rang, _score, _tag = champs
-        run[q].append((int(rang), d))
+        try:
+            r_int = int(rang)
+        except ValueError:
+            malformees.append(f"B_holdout_base_run.trec:{n}")
+            continue
+        # Les rangs de ce fichier commencent a 0, pas a 1. Le controle ecrit d'abord
+        # exigeait un rang >= 1 et declarait les 310 requetes malformees : une convention
+        # supposee au lieu d'etre lue. Seule la negativite est une vraie anomalie.
+        if r_int < 0:
+            malformees.append(f"B_holdout_base_run.trec:{n} (negative rank {r_int})")
+            continue
+        # Deux documents au meme rang font departager par identifiant, puisque `sorted`
+        # prend le second element du tuple comme cle secondaire. Le verificateur
+        # inventerait alors sa propre regle de tie-break, dans un fichier dont tout
+        # l'interet est qu'un fine-tune y a ete bloque pour une difference de tie-break.
+        if any(existant == r_int for existant, _ in run[q]):
+            malformees.append(f"B_holdout_base_run.trec:{n} (duplicate rank {r_int} for {q})")
+            continue
+        run[q].append((r_int, d))
 
     # Un fichier abime doit produire un refus nomme, pas une trace Python. Sans ce garde,
     # une troncature faisait mourir le script avant la premiere ligne de resultat, ce qui
@@ -189,6 +213,14 @@ def verifie_recalcul() -> None:
     dit(not manquantes,
         f"every judged query appears in the run file"
         + (f"; {len(manquantes)} missing" if manquantes else ""))
+
+    # L'inverse se verifie aussi. Une requete presente dans le run et absente des jugements
+    # ne participe pas au score et disparaissait en silence : le score reste juste, mais
+    # l'entree du calcul cesse d'etre celle que le fichier declare.
+    surnumeraires = sorted(set(run) - set(jugements))
+    dit(not surnumeraires,
+        f"the run file holds no query the qrels do not judge"
+        + (f"; {len(surnumeraires)} extra, first {surnumeraires[0]}" if surnumeraires else ""))
 
     scores = [ndcg_at_10(run[q], jugements[q]) for q in jugements]
     recalcule = round(sum(scores) / len(scores), 6)
@@ -218,6 +250,12 @@ def verifie_recalcul() -> None:
     ecarts = [x for x in diag if abs(x.get("delta", 0)) > 1e-5]
     # Nuance relevee par une revue exterieure : ceci lit le diagnostic livre, il ne le
     # reconstruit pas depuis les donnees primitives. La metrique, elle, est bien recalculee.
+    # Le diagnostic doit d'abord couvrir toutes les requetes de la decision. Sans ce
+    # controle, un diagnostic tronque a 100 lignes dont une seule diverge passait aussi
+    # bien qu'un diagnostic complet : « tout l'ecart sur une requete » n'a de sens que si
+    # l'on sait sur combien de requetes on a regarde.
+    dit(len(diag) == c["n"],
+        f"the diagnostic covers {len(diag)} queries, the decision record says {c['n']}")
     dit(len(ecarts) == 1,
         f"shipped diagnostic puts the whole gap on {len(ecarts)} query out of {len(diag)}"
         + (f": {ecarts[0]['qid']}, delta {ecarts[0]['delta']}" if len(ecarts) == 1 else "")
@@ -267,9 +305,13 @@ def verifie_tests() -> None:
     if importlib.util.find_spec("pytest") is None:
         dit(False, "pytest is not installed. Run: pip install pytest")
         return
-    for cible, attendu in (("evidence/code/test_eval_regression.py", 35),
-                           ("evidence/gates/tests/", 31),
-                           ("evidence/agent-governance/tests/", 31)):
+    # Le nombre attendu est le nombre de cas executes, superieur au nombre de fonctions
+    # `def test_` depuis que trois suites sont pilotees par table. Section 8 compte les
+    # fonctions, celle-ci compte les cas : les deux chiffres sont differents et le
+    # README dit lequel il annonce.
+    for cible, attendu in (("evidence/code/test_eval_regression.py", 50),
+                           ("evidence/gates/tests/", 58),
+                           ("evidence/agent-governance/tests/", 60)):
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", cible],
                                cwd=RACINE, capture_output=True, text=True, timeout=300)
@@ -330,9 +372,39 @@ def verifie_comptes() -> None:
     tests = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
                 for f in sorted(RACINE.rglob("evidence/**/test_*.py")))
     dit(f"{tests} shipped unit tests" in texte, f"README states \"{tests} shipped unit tests\"")
+
+    # Le docstring de ce fichier annoncait cinq etapes pour huit sections. Un compteur
+    # ecrit a la main derive ; celui-ci se compte lui-meme.
+    moi = Path(__file__).read_text(encoding="utf-8")
+    sections = {int(m) for m in re.findall(r"^    titre\((\d+),", moi, re.M)}
+    annoncees = {int(m) for m in re.findall(r"^(\d+)\. ", __doc__ or "", re.M)}
+    dit(sections == annoncees,
+        f"the docstring lists the {len(sections)} sections this script actually runs"
+        + (f"; runs {sorted(sections)}, lists {sorted(annoncees)}"
+           if sections != annoncees else ""))
     carte = (RACINE / "evidence" / "README.md").read_text(encoding="utf-8")
     dit(not re.search(r"\b\d+ checks\b", carte),
         "evidence/README.md states no check count of its own, so it cannot drift")
+
+    # Un mecanisme dont le dossier de preuves existe ne doit pas etre annonce comme non
+    # livre. Le commit du 2026-09-11 l'avait dit lui-meme : « le commit precedent a echoue
+    # en silence sur cette partie », et rien ne l'attrapait. Une reecriture de section qui
+    # rate laisse une page qui contredit ses propres fichiers, et personne ne le voit.
+    livres = {"scope guard": "evidence/agent-governance/scope_guard.py",
+              "audit chain": "evidence/agent-governance/audit_chain.py",
+              "anti-invention": "evidence/gates/anti_invention.py",
+              "proof register": "evidence/gates/proof_registry.py"}
+    section = texte.split("**What is declared and not shipped.**")
+    contredits = []
+    if len(section) > 1:
+        # On ne lit que le paragraphe des non-livres, pas la page entiere.
+        paragraphe = section[1].split("\n\n")[0].lower()
+        for nom, chemin in livres.items():
+            if nom in paragraphe and (RACINE / chemin).exists():
+                contredits.append(f"{nom} is called not shipped, {chemin} exists")
+    dit(not contredits,
+        "nothing the README calls unshipped has a file in the repository"
+        + (f"; {contredits[0]}" if contredits else ""))
 
     # Une revue exterieure a trouve un chemin cite dans un docstring et absent du depot.
     # Les chemins internes cites en `backticks` sont donc confrontes au disque.
@@ -360,7 +432,7 @@ def sans_trace(nom: str, fonction, *args):
 
     Un verificateur qui meurt sur une trace Python ressemble a un verificateur silencieux :
     la trace sort avant la premiere ligne de resultat, et un lecteur presse la lit comme une
-    erreur d'environnement. Une piece manquante ou abimee doit produire un ECHEC nomme, pas
+    erreur d'environnement. Une piece manquante ou abimee doit produire un FAIL nomme, pas
     un arret. Trouve a l'audit du 2026-09-11 sur quatre artefacts differents.
     """
     try:

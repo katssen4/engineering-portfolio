@@ -69,9 +69,16 @@ Calls the public endpoints of six applicant tracking systems and records what ac
 Nothing here comes from memory: every URL is really called and the result is written down as it
 came.
 
-It exists because of one finding. SmartRecruiters answers HTTP 200 with `totalFound: 0` on an
-identifier that does not exist, so a 200 there proves nothing. Greenhouse, Lever and Ashby return
-a clean 404. A prober that trusted status codes would have reported open doors that are not there.
+It exists because of one finding, observed on 2026-09-09. SmartRecruiters answered HTTP 200 with
+`totalFound: 0` on an identifier that does not exist, so a 200 there proved nothing; Greenhouse,
+Lever and Ashby returned a clean 404. A prober that trusted status codes would have reported open
+doors that are not there.
+
+Those are observations with a date, not properties of those systems. They can change tomorrow
+without anyone announcing it, and nothing in this repository re-checks them: the verifier installs
+one dependency and then touches no network, deliberately, so the shipped tests exercise the local
+functions and never the six live endpoints. What the tests do lock down is the rule the finding
+produced, which does not depend on any vendor keeping its behaviour.
 
 No target list ships with it: pass your own JSON file of `[name, field, ats, token]`.
 
@@ -79,6 +86,15 @@ The count it returns is `-1` when the response does not have the shape expected 
 system, and never `0`. A zero has to be a zero someone observed. The audit of 2026-09-11
 found this function returning `0` for an unrecognised payload, which reproduced inside the
 tool exactly the trap it was written to avoid.
+
+The transport follows the same rule since the day after, when a review noticed that the counting
+function refused to invent a zero while the fetching function manufactured one on every 403, 429,
+500, timeout and DNS failure. A zero now requires a 200, a recognised shape, and an observed empty
+list or total. Everything else is `-1` with the reason recorded beside it.
+
+This module counts openings. It does not read the text of a posting and keeps none of it, so it
+signals nothing about instructions addressed to an agent; its docstring claimed otherwise until
+2026-09-11. That signalling exists in the private workbench and is not shipped here.
 
 ## `proof_registry.py`
 

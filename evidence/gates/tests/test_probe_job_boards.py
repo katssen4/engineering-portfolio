@@ -49,3 +49,84 @@ def test_une_forme_inconnue_ne_vaut_pas_zero():
 
 def test_un_systeme_inconnu_ne_vaut_pas_zero():
     assert pb.compter("inconnu", {"jobs": [1, 2]}) == -1
+
+
+# ── Le transport suit la meme regle que la forme ──────────────────────────────
+#
+# `compter` refusait d'inventer un zero pendant que `sonder` en fabriquait un a chaque
+# erreur reseau. Une revue exterieure a releve la contradiction le 2026-09-11 : le README
+# de ce repertoire promet qu'un zero est un zero que quelqu'un a observe, et un 403 n'est
+# pas une observation d'absence d'offre.
+
+
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+class _Reponse:
+    """Une reponse 200 minimale, du strict necessaire pour `with urlopen(...) as rep`."""
+
+    status = 200
+
+    def __init__(self, charge: bytes):
+        self._charge = charge
+
+    def read(self):
+        return self._charge
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+ECHECS = [
+    ("403", urllib.error.HTTPError("u", 403, "Forbidden", {}, None)),
+    ("429", urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)),
+    ("500", urllib.error.HTTPError("u", 500, "Server Error", {}, None)),
+    ("delai depasse", TimeoutError("timed out")),
+    ("echec DNS", urllib.error.URLError("Name or service not known")),
+]
+
+
+@pytest.mark.parametrize("nom,erreur", ECHECS, ids=[n for n, _ in ECHECS])
+def test_une_non_reponse_ne_devient_jamais_zero_offre(monkeypatch, nom, erreur):
+    def lever(*a, **k):
+        raise erreur
+
+    monkeypatch.setattr(urllib.request, "urlopen", lever)
+    ligne = pb.sonder(("Entreprise", "terrain", "greenhouse", "jeton"))
+    assert ligne["offres"] == -1, f"{nom} a ete lu comme une absence d'offre"
+    assert ligne.get("note"), "la raison doit etre consignee, pas seulement le -1"
+
+
+def test_un_zero_ne_sort_que_d_un_200_de_forme_reconnue(monkeypatch):
+    """Le seul chemin qui a le droit de produire un zero."""
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Reponse(b'{"jobs": []}'))
+    assert pb.sonder(("E", "t", "greenhouse", "j"))["offres"] == 0
+
+
+def test_un_200_de_forme_inconnue_ne_vaut_pas_zero(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: _Reponse(b'{"resultats": []}'))
+    assert pb.sonder(("E", "t", "greenhouse", "j"))["offres"] == -1
+
+
+def test_un_200_qui_n_est_pas_du_json_ne_vaut_pas_zero(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: _Reponse(b"<html>maintenance</html>"))
+    ligne = pb.sonder(("E", "t", "greenhouse", "j"))
+    assert ligne["offres"] == -1
+    assert ligne["note"] == "reponse non JSON"
+
+
+def test_le_module_ne_promet_pas_de_signaler_les_injections():
+    """Le docstring annoncait que les directives adressees a un agent etaient signalees.
+    Ce module ne lit pas le texte des fiches : il compte. Le claim decrivait un mecanisme
+    absent du fichier publie, ce que ce test empeche de reintroduire."""
+    doc = pb.__doc__ or ""
+    assert "elles sont signalees" not in doc
+    assert "harnais prive" in doc

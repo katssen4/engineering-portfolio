@@ -22,8 +22,10 @@ max_p=0.01, random_seed=42, ...)` — the kwarg to select the test is `stat_test
 'student' = paired Student's t-test); significance threshold kwarg is `max_p=`. The baseline
 policy `stat_test: "paired-t"` maps to ranx `stat_test="student"` (see _RANX_STAT_TEST_MAP).
 
-Stdlib-only for the gate logic (json/hashlib/argparse). ir_measures/ranx are imported
-lazily inside the (stubbed) run step so the pure functions and their tests need no corpus.
+Stdlib-only for the gate logic (json/hashlib/argparse/math). ir_measures/ranx are imported
+lazily inside the run step so the pure functions and their tests need no corpus. (The word
+"stubbed" stood here until 2026-09-11, three weeks after the FTS5 run was wired. Same drift
+as the paragraph above, same review.)
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -149,6 +152,66 @@ def verify_lock(path: str | Path) -> tuple[bool, str]:
     if stored == recomputed:
         return (True, f"integrity OK — {stored}")
     return (False, f"integrity BROKEN — stored={stored} recomputed={recomputed}")
+
+
+_POLICY_REQUISE = ("primary_metric", "delta_abs", "require_significance", "max_p", "stat_test")
+
+
+def validate_lock_for_gate(payload: dict, collection: str) -> tuple[bool, str]:
+    """Check that a lock has the fields a gate needs, independently of its hash.
+
+    `verify_lock` proves that the payload is the one that was sealed. It does not prove
+    that the payload can gate anything. The two are different questions, and a review on
+    2026-09-11 showed what happens when the second is skipped: a lock whose collection
+    entry has no `ndcg@10` was read through `coll_baseline.get(primary_metric, 0.0)`, so a
+    missing baseline became a baseline of zero, and a current score of 0.48 was declared an
+    improvement over a number nobody ever measured.
+
+    A hash-valid lock can be semantically incomplete: resealed after an edit, truncated by
+    a partial write, or produced by an older schema. Integrity is not validity.
+
+    Returns (ok, message). Every failure is a setup error, never a verdict.
+    """
+    if payload.get("sealed") is not True:
+        return (False, "lock is not sealed")
+    if not payload.get("schema"):
+        return (False, "lock declares no schema")
+    policy = payload.get("regression_policy")
+    if not isinstance(policy, dict):
+        return (False, "regression_policy absent or not an object")
+    manquants = [k for k in _POLICY_REQUISE if k not in policy]
+    if manquants:
+        return (False, f"regression_policy missing {', '.join(manquants)}")
+    if not isinstance(policy["primary_metric"], str) or not policy["primary_metric"]:
+        return (False, "primary_metric is not a metric name")
+    for champ in ("delta_abs", "max_p"):
+        valeur = policy[champ]
+        if not isinstance(valeur, (int, float)) or isinstance(valeur, bool):
+            return (False, f"{champ} is not a number: {valeur!r}")
+        if not math.isfinite(float(valeur)):
+            return (False, f"{champ} is not finite: {valeur!r}")
+    if float(policy["delta_abs"]) < 0:
+        return (False, f"delta_abs is negative: {policy['delta_abs']!r}")
+    if not 0.0 <= float(policy["max_p"]) <= 1.0:
+        return (False, f"max_p is outside [0, 1]: {policy['max_p']!r}")
+    if not isinstance(policy["require_significance"], bool):
+        return (False, "require_significance is not a boolean")
+
+    coll = payload.get("baselines", {}).get(collection)
+    if not isinstance(coll, dict):
+        return (False, f"no baseline for collection '{collection}'")
+    metric = policy["primary_metric"]
+    if metric not in coll:
+        return (False, f"baseline for '{collection}' has no '{metric}'")
+    valeur = coll[metric]
+    if not isinstance(valeur, (int, float)) or isinstance(valeur, bool):
+        return (False, f"baseline '{metric}' is not a number: {valeur!r}")
+    if not math.isfinite(float(valeur)):
+        return (False, f"baseline '{metric}' is not finite: {valeur!r}")
+    n = coll.get("n_queries")
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        return (False, f"baseline '{collection}' has no usable n_queries: {n!r}")
+    return (True, f"schema OK — {collection}/{metric}={valeur} over {n} queries")
 
 
 def is_regression(
@@ -347,8 +410,10 @@ def run_current_metrics(manifest: dict, collection_id: str, seed: int, policy: d
     {primary_metric: float, "mrr", "recall@100", "n_queries", "per_query", "p_value"}.
 
     `p_value` is None until a *candidate* run is supplied to compare against the
-    baseline run (the gate's is_regression() fails open on the significance leg when
-    p_value is None — see its docstring). The ranx paired test, when a candidate lands:
+    baseline run. When significance is required and the p-value is absent, the gate no
+    longer fails open on that leg: it raises CannotGateError and the caller exits 2 (see
+    is_regression's docstring). This sentence said the opposite until 2026-09-11, several
+    weeks after the behaviour changed. The ranx paired test, when a candidate lands:
 
         from ranx import compare
         report = compare(qrels, runs=[baseline_run, current_run],
@@ -441,17 +506,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[eval-regression] load error: {exc}", file=sys.stderr)
         return EXIT_SETUP_ERROR
 
-    policy = baseline.get("regression_policy", {})
-    primary_metric = policy.get("primary_metric", "ndcg@10")
-    seed = int(baseline.get("system", {}).get("seed", 0))
-
-    coll_baseline = baseline.get("baselines", {}).get(args.collection)
-    if coll_baseline is None:
-        print(
-            f"[eval-regression] no baseline for collection '{args.collection}'",
-            file=sys.stderr,
-        )
+    # 1bis. Verify the lock can gate at all. Integrity is not validity: a resealed but
+    #       incomplete lock passes step 1 and still has no number to compare against.
+    ok, message = validate_lock_for_gate(baseline, args.collection)
+    if not ok:
+        print(f"[eval-regression] lock schema error: {message}", file=sys.stderr)
         return EXIT_SETUP_ERROR
+
+    policy = baseline["regression_policy"]
+    primary_metric = policy["primary_metric"]
+    seed = int(baseline.get("system", {}).get("seed", 0))
+    coll_baseline = baseline["baselines"][args.collection]
 
     # 2. Verify manifest file hashes for the collection (exit 2 on mismatch).
     ok, message = verify_manifest_hashes(manifest, args.collection, view=args.view)
@@ -468,7 +533,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # 4. Gate. The scoring-regime guard (S31) runs FIRST, inside is_regression: a mixed
     #    pre-change/post-change comparison is a setup error (cannot gate), never a verdict.
-    baseline_value = float(coll_baseline.get(primary_metric, 0.0))
+    # No default here. `coll_baseline.get(primary_metric, 0.0)` turned an absent baseline
+    # into a baseline of zero, which reads as "no regression" for any current score.
+    # validate_lock_for_gate has already refused the lock if the key is missing.
+    baseline_value = float(coll_baseline[primary_metric])
     try:
         regressed = is_regression(
             current[primary_metric],

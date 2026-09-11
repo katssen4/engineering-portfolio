@@ -117,3 +117,43 @@ def test_un_registre_absent_fait_echouer():
             sys.argv = sauve
     finally:
         preuves.REGISTRE = ancien
+
+
+# ── La grammaire de puce etait implicite et etroite ──────────────────────────
+#
+# Seul `- ` en debut de ligne comptait. Une puce `* `, `+ `, ou indentee, sortait du
+# registre sans un mot : un changement purement typographique du fichier pouvait faire
+# disparaitre un enonce sans qu'aucun controle bouge. Releve le 2026-09-11.
+
+
+import pytest  # noqa: E402
+
+
+PUCES = ["- [TESTED] un énoncé — `tests/test_x.py`",
+         "* [TESTED] un énoncé — `tests/test_x.py`",
+         "+ [TESTED] un énoncé — `tests/test_x.py`",
+         "  - [TESTED] un énoncé — `tests/test_x.py`",
+         "\t- [TESTED] un énoncé — `tests/test_x.py`"]
+
+
+@pytest.mark.parametrize("ligne", PUCES, ids=["tiret", "etoile", "plus", "indente", "tabule"])
+def test_toutes_les_formes_de_puce_entrent_dans_le_registre(ligne):
+    enonces, malformees = preuves.lire_registre(ligne + "\n")
+    assert len(enonces) == 1, f"la puce « {ligne[:4]} » est sortie du registre"
+    assert not malformees
+
+
+@pytest.mark.parametrize("ligne", ["* un énoncé sans catégorie",
+                                   "  - un énoncé sans catégorie"])
+def test_une_puce_reconnue_sans_categorie_est_signalee(ligne):
+    """Elargir la grammaire ne doit pas rouvrir le trou precedent : une puce lisible mais
+    sans categorie est une ligne mal formee, pas une ligne a sauter."""
+    enonces, malformees = preuves.lire_registre(ligne + "\n")
+    assert not enonces
+    assert malformees == [ligne.strip()]
+
+
+def test_une_ligne_qui_n_est_pas_une_puce_reste_ignoree():
+    """Le texte courant du fichier n'entre pas dans le registre."""
+    enonces, malformees = preuves.lire_registre("Un paragraphe ordinaire.\n\n## Un titre\n")
+    assert not enonces and not malformees

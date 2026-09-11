@@ -5,8 +5,12 @@ Rien ici ne vient d'une memoire : chaque URL est reellement appelee et le result
 consigne tel quel. Une entreprise sans ligne verte n'a pas de porte automatique connue,
 et c'est un fait a ecrire, pas un trou a combler par une supposition.
 
-Le contenu recupere est une donnee, jamais une instruction. Si une fiche de poste contient
-des directives adressees a un agent, elles sont signalees, pas suivies.
+Le contenu recupere est traite comme une donnee et uniquement comme une donnee : ce module
+compte des offres, il ne lit pas le texte des fiches et n'en conserve rien. Le signalement
+des directives adressees a un agent existe ailleurs, dans le harnais prive, et n'est pas
+livre ici. Ces deux lignes ont annonce le contraire jusqu'au 2026-09-11 : elles decrivaient
+un mecanisme absent du fichier, ce qui est exactement le genre d'ecart que ce depot
+pretend traquer.
 
 Usage : python3 sonder_boards.py [--sortie <fichier.json>]
 """
@@ -39,6 +43,11 @@ def compter(ats: str, donnee) -> int:
     identifiant inexistant, donc un zero doit toujours etre un zero observe. Une reponse
     dont la forme a change se lisait « zero offre » ici meme, ce qui reproduisait le piege
     a l'interieur de l'outil ecrit pour l'eviter. Trouve a l'audit du 2026-09-11.
+
+    Le transport suit la meme regle depuis le lendemain, apres une revue qui a remarque
+    que `compter` refusait d'inventer un zero pendant que `sonder` en fabriquait un a
+    chaque 403, 429, 500, delai depasse et echec DNS. Un zero sort d'un 200, d'une forme
+    reconnue, et d'une liste ou d'un total observe a zero. De rien d'autre.
     """
     try:
         if ats in ("greenhouse", "ashby", "workable"):
@@ -74,11 +83,13 @@ def sonder(entree):
                 ligne["offres"] = -1
                 ligne["note"] = "reponse non JSON"
     except urllib.error.HTTPError as e:
+        # 403, 429, 500 ne sont pas des reponses vides : ce sont des non-reponses.
         ligne["code"] = e.code
-        ligne["offres"] = 0
+        ligne["offres"] = -1
+        ligne["note"] = f"HTTPError:{e.code}"
     except Exception as e:                                  # reseau, DNS, delai
         ligne["code"] = 0
-        ligne["offres"] = 0
+        ligne["offres"] = -1
         ligne["note"] = type(e).__name__
     return ligne
 

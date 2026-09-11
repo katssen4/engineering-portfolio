@@ -55,11 +55,17 @@ class AuditLockUnavailableError(RuntimeError):
 
 
 class AuditTrailCorruptError(RuntimeError):
-    """La derniere ligne du journal n'est pas du JSON valide.
+    """Une ligne du journal n'est pas du JSON valide.
 
     Le fichier n'est pas vide, donc il a une histoire, mais cette histoire est illisible :
     ecriture interrompue, corruption disque, retouche manuelle. Etendre un journal dans cet
     etat reviendrait a repartir d'une genese comme si rien n'avait precede.
+
+    Levee a l'ajout quand c'est la derniere ligne qui est illisible, et a la lecture, depuis
+    le 2026-09-11, quand c'est n'importe laquelle : les deux lecteurs sautaient la ligne en
+    silence, et une vue qui omet ce qu'elle n'a pas su lire presente une histoire partielle
+    comme si elle etait entiere. `verify_chain` detectait bien la corruption, mais rien
+    n'obligeait un appelant a passer par lui avant d'afficher un journal.
     """
 
 
@@ -119,6 +125,18 @@ def _load_key_or_none() -> bytes | None:
             file=sys.stderr,
         )
         return None
+    # La cle doit etre un fichier ordinaire. Un lien symbolique est une substitution : il
+    # fait lire une cle que son proprietaire n'a pas posee, sans toucher au chemin declare.
+    # Ce controle ne se trompe jamais, contrairement aux bits de permission, qui ne veulent
+    # rien dire sur un montage Windows et refuseraient a tort sur la machine de l'auteur.
+    # Ce que ce controle ne fait donc pas : verifier que la cle n'est pas lisible par
+    # d'autres comptes. La limite est ecrite dans le README de ce repertoire plutot que
+    # devinee ici, parce qu'un controle qui refuse a tort finit desactive.
+    if key_path.is_symlink() or not key_path.is_file():
+        raise HMACKeyMissingError(
+            f"la cle HMAC {key_path} n'est pas un fichier ordinaire "
+            f"({'lien symbolique' if key_path.is_symlink() else 'type inattendu'}) : "
+            f"refus de signer avec une cle dont la provenance n'est pas celle declaree.")
     cle = key_path.read_bytes()
     if len(cle) < _TAILLE_CLE_MINIMALE:
         raise HMACKeyMissingError(
@@ -339,19 +357,37 @@ def read_events(
     filter_type: str | None = None,
     filter_session: str | None = None,
     events_jsonl_path: Path | None = None,
+    strict: bool = True,
 ) -> Iterator[dict[str, Any]]:
-    """Itérateur lazy events filtrés par event_kind/session — saute lignes invalides."""
-    target = events_jsonl_path if events_jsonl_path is not None else events_jsonl()
+    """Itérateur lazy sur les events, filtrés par event_kind et par session.
+
+    `events_jsonl_path` est obligatoire dans cet extrait. Il ne l'était pas : le repli
+    appelait `events_jsonl()`, un résolveur du harnais complet resté hors de l'extrait,
+    et tout appel sans chemin mourait sur un `NameError`. `append_event` et `verify_chain`
+    avaient été nettoyés, les deux lecteurs non. Artefact de réduction, trouvé par une
+    revue extérieure le 2026-09-11.
+
+    `strict=True` lève sur une ligne illisible. Le défaut par défaut était de la sauter en
+    silence, ce qui présente une histoire partielle comme si elle était entière : dans un
+    journal d'audit, c'est le contraire de ce qu'on lui demande. `verify_chain` détecte
+    cette corruption, mais rien n'obligeait un appelant à passer par lui.
+    """
+    if events_jsonl_path is None:
+        raise ValueError("events_jsonl_path est obligatoire dans cet extrait")
+    target = events_jsonl_path
     if not target.exists():
         return
     with open(target, "r", encoding="utf-8") as f:
-        for raw in f:
+        for numero, raw in enumerate(f, start=1):
             stripped = raw.strip()
             if not stripped:
                 continue
             try:
                 record = json.loads(stripped)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                if strict:
+                    raise AuditTrailCorruptError(
+                        f"ligne {numero} de {target} illisible : {exc}") from exc
                 continue
             if filter_type is not None and record.get("event_kind") != filter_type:
                 continue
@@ -361,22 +397,28 @@ def read_events(
 
 
 def read_last_n_events(
-    n: int = 10, events_jsonl_path: Path | None = None
+    n: int = 10, events_jsonl_path: Path | None = None, strict: bool = True
 ) -> list[dict[str, Any]]:
-    """Lit dernières N events (deque maxlen pour grand fichier)."""
+    """Les N derniers events. Mêmes deux règles que `read_events` : le chemin est
+    obligatoire, et une ligne illisible lève au lieu d'être sautée en silence."""
     from collections import deque
 
-    target = events_jsonl_path if events_jsonl_path is not None else events_jsonl()
+    if events_jsonl_path is None:
+        raise ValueError("events_jsonl_path est obligatoire dans cet extrait")
+    target = events_jsonl_path
     if not target.exists():
         return []
     buffer: deque[dict[str, Any]] = deque(maxlen=max(n, 0))
     with open(target, "r", encoding="utf-8") as f:
-        for raw in f:
+        for numero, raw in enumerate(f, start=1):
             stripped = raw.strip()
             if not stripped:
                 continue
             try:
                 buffer.append(json.loads(stripped))
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                if strict:
+                    raise AuditTrailCorruptError(
+                        f"ligne {numero} de {target} illisible : {exc}") from exc
                 continue
     return list(buffer)
