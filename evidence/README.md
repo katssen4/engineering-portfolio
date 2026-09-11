@@ -16,6 +16,10 @@ on 2026-09-11, in place, each with the date and the reason in the text. The alte
 leave a copy that contradicted the code it was evidence for, which is worse than a copy that
 says where it was edited. Nothing else in `evidence/code/` differs from the bench.
 
+`review-history.md` is the register of what outside review found here, one row per finding,
+each naming the test or the control that holds it. It is the evidence for the method claim, and
+`tools/verify.py` resolves its anchors rather than taking it on trust.
+
 Start here:
 
     python3 tools/verify.py

@@ -31,7 +31,7 @@ that workflow, which is what section 2 is about, and the commit history here sho
     python3 -m pip install -r requirements-ci.txt
     python3 tools/verify.py
 
-56 checks. Once its one test dependency is installed the run touches no network and downloads no
+60 checks. Once its one test dependency is installed the run touches no network and downloads no
 corpus. GitHub runs it on every push, which is what the badge reports. Hand it a truncated run file
 and it names the malformed line and stops, instead of dying on a stack trace.
 
@@ -53,6 +53,12 @@ method. You cannot run it against a system you do not have.
 The 140 shipped unit tests run in the same pass, 202 cases once the table-driven ones are
 expanded, and the script finishes by counting its own checks against the numbers printed on this
 page.
+
+Six outside reviews and two internal adversarial audits have run against this repository. What
+each one found, and the test or control that now stops it coming back, is one row per finding in
+[`evidence/review-history.md`](evidence/review-history.md). The verifier resolves every anchor in
+that file, so a row whose test disappears fails the run. The rows that nothing can pin are marked
+as such, because most documentation drift cannot be tested, which is why it drifts.
 
 ---
 

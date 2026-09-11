@@ -26,6 +26,8 @@ drift that section 8 was written to catch elsewhere. Section 8 now counts the se
 6. Runs the governance mechanisms on their own example data, and checks they refuse.
 7. Runs the shipped unit tests, if pytest is available.
 8. Counts the checks, the sections and the tests, and compares them to what the README says.
+9. Resolves every anchor of evidence/review-history.md, which is the only place the method
+   claim has evidence: each finding must still name a test that exists or a control that runs.
 
 Exit code 0 when everything agrees, 1 otherwise. Standard library, plus pytest for the
 unit-test step, which names the missing dependency rather than failing obscurely.
@@ -436,6 +438,58 @@ def verifie_comptes() -> None:
     dit(attendu in texte, f"README states \"{attendu}\"")
 
 
+HISTORIQUE = RACINE / "evidence" / "review-history.md"
+
+
+def verifie_historique() -> None:
+    """Chaque trouvaille du registre doit encore nommer quelque chose qui existe.
+
+    Le depot affirme une methode : reproduire, figer par un test, corriger ou ecrire la
+    limite. C'etait la seule affirmation majeure de la page a ne vivre que dans de la prose,
+    alors que la regle du depot est que chaque affirmation a un fichier. `review-history.md`
+    est ce fichier, et cette section est ce qui l'empeche de devenir decoratif : un registre
+    dont les preuves s'evaporent est precisement ce que `proof_registry.py` decrit.
+
+    Ce qui n'est pas verifiable ici, et qui est ecrit dans le registre lui-meme : que la
+    liste soit complete. Rien ne detecte une trouvaille recue et discretement abandonnee.
+    """
+    titre(9, "The register of what review found")
+    if not HISTORIQUE.exists():
+        dit(False, f"{HISTORIQUE.relative_to(RACINE)} is missing")
+        return
+    texte = HISTORIQUE.read_text(encoding="utf-8")
+
+    tests = set()
+    for f in sorted(RACINE.rglob("evidence/**/test_*.py")):
+        tests |= set(re.findall(r"^def (test_\w+)", f.read_text(encoding="utf-8"), re.M))
+    cites = sorted(set(re.findall(r"`(test_\w+)`", texte)))
+    absents = [t for t in cites if t not in tests]
+    dit(not absents,
+        f"the {len(cites)} tests the register names all still exist"
+        + (f"; missing: {', '.join(absents[:3])}" if absents else ""))
+
+    moi = Path(__file__).read_text(encoding="utf-8")
+    frags = re.findall(r"\[check\]\s*`([^`]+)`", texte)
+    perdus = [f for f in frags if f not in moi]
+    dit(not perdus,
+        f"the {len(frags)} controls it quotes are still run by this script"
+        + (f"; missing: {perdus[0]!r}" if perdus else ""))
+
+    # Une ligne de trouvaille sans ancre est le debut de la derive : le registre garde
+    # l'apparence d'un dossier de preuve et cesse d'en etre un.
+    lignes = [l for l in texte.splitlines()
+              if l.startswith("| ") and not l.startswith("|---")
+              and not l.startswith("| Finding")]
+    sans_ancre = [l for l in lignes if not re.search(r"\[(test|check|doc)\]", l)]
+    dit(not sans_ancre,
+        f"each of the {len(lignes)} findings carries an anchor"
+        + (f"; first without: {sans_ancre[0][:60]}" if sans_ancre else ""))
+
+    doc_seul = [l for l in lignes if "[doc]" in l]
+    dit(True, f"{len(lignes) - len(doc_seul)} of them are pinned by something executable, "
+              f"{len(doc_seul)} are wording corrections nothing can test")
+
+
 def sans_trace(nom: str, fonction, *args):
     """Execute une section et convertit toute exception en echec nomme.
 
@@ -464,6 +518,7 @@ def main() -> int:
     sans_trace("the gates", verifie_portes)
     sans_trace("the governance mechanisms", verifie_gouvernance)
     sans_trace("the unit tests", verifie_tests)
+    sans_trace("the review register", verifie_historique)
     sans_trace("the self-count", verifie_comptes)
     print()
     if echecs:
