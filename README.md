@@ -60,6 +60,28 @@ each one found, and the test or control that now stops it coming back, is one ro
 that file, so a row whose test disappears fails the run. The rows that nothing can pin are marked
 as such, because most documentation drift cannot be tested, which is why it drifts.
 
+## How I work
+
+Eight years of taking a design written elsewhere and making it hold in someone else's
+environment taught me the part of this job that has not changed: the problem arrives badly
+stated, and someone has to carry it until it is executable. What the system must do, what it
+must refuse, and how anyone would know it works. That is the part I do. Coding agents do a large
+share of the typing. The commit history here shows them, and `evidence/review-history.md` shows
+what outside readers found in what they produced.
+
+I do not hold every layer of these systems in my head, and I do not claim to. I know what each
+mechanism has to guarantee and why it is there. When a number does not land where it should, I
+go down as far as that number requires. Section 1 is the case worth reading for this: a positive
+control missed its own reference, and the entire gap sat in one query out of 310, where two
+documents held the same score to the last fp16 bit and two providers broke that tie in opposite
+directions. Reading the evaluation library was the only way to find it. Nothing here required me
+to read it before the control failed.
+
+That boundary is the reason the controls exist. A number recomputed by a script does not depend
+on my remembering it correctly, and a write perimeter checked by a guard does not depend on my
+remembering what I declared three weeks ago. Most of what is shipped in this repository is
+machinery that refuses on my behalf.
+
 ---
 
 ## 1. Measuring a retrieval engine
