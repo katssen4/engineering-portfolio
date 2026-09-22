@@ -3,8 +3,8 @@
 
 It covers what is recomputable: the retrieval table, the seal on the reference lock, the
 blocked fine-tune decision, the two gates on their example data, and the unit tests. Counts
-describing systems that are not shipped here are declared in the README, not recomputed, and
-the README says so.
+describing systems that are not shipped here are declared in EVIDENCE.md, not recomputed, and
+EVIDENCE.md says so.
 
 Run it from the repository root:
 
@@ -16,8 +16,8 @@ drift that section 8 was written to catch elsewhere. Section 8 now counts the se
 
 1. Verifies the seal on the reference lock, by recomputing its SHA-256 with the same
    function the bench uses (evidence/code/eval_regression.py).
-2. Rebuilds the retrieval table of README.md from the lock, and compares it cell by cell
-   to what the README actually prints.
+2. Rebuilds the retrieval table of EVIDENCE.md from the lock, and compares it cell by cell
+   to what EVIDENCE.md actually prints.
 3. Reads the blocked fine-tune decision and checks the control really failed.
 4. Recomputes the control score from the TREC files, and checks the run file and the
    judgements describe the same set of queries.
@@ -25,7 +25,7 @@ drift that section 8 was written to catch elsewhere. Section 8 now counts the se
    with them, and checks they pass the honest one and refuse the one carrying an invention.
 6. Runs the governance mechanisms on their own example data, and checks they refuse.
 7. Runs the shipped unit tests, if pytest is available.
-8. Counts the checks, the sections and the tests, and compares them to what the README says.
+8. Counts the checks, the sections and the tests, and compares them to what EVIDENCE.md says.
 9. Resolves every anchor of evidence/review-history.md, which is the only place the method
    claim has evidence: each finding must still name a test that exists or a control that runs.
 
@@ -46,7 +46,9 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[1]
 LOCK = RACINE / "evidence" / "retrieval" / "baseline_lock.json"
 DECISION = RACINE / "evidence" / "finetune-blocked" / "F1_decision.json"
-README = RACINE / "README.md"
+# Le recit technique et ses chiffres vivent dans EVIDENCE.md depuis que le README est devenu une
+# page d'accueil lisible par un humain ; c'est ce fichier que les controles confrontent.
+README = RACINE / "EVIDENCE.md"
 MODULE = RACINE / "evidence" / "code" / "eval_regression.py"
 
 PROJETS = ["Hadoop", "Cassandra", "HBase", "Spark"]
@@ -114,14 +116,14 @@ def table_depuis_lock(payload: dict) -> dict:
 
 
 def verifie_readme(payload: dict) -> None:
-    titre(2, "Retrieval table in README.md, cell by cell")
+    titre(2, "Retrieval table in EVIDENCE.md, cell by cell")
     attendu = table_depuis_lock(payload)
     texte = README.read_text(encoding="utf-8")
     for projet, ligne in attendu.items():
         motif = re.compile(r"^\|\s*" + projet + r"\s*\|(.+)\|\s*$", re.M)
         m = motif.search(texte)
         if not m:
-            dit(False, f"{projet}: no row found in README.md")
+            dit(False, f"{projet}: no row found in EVIDENCE.md")
             continue
         cellules = [c.strip().strip("*") for c in m.group(1).split("|")]
         if len(cellules) != 4:
@@ -131,8 +133,8 @@ def verifie_readme(payload: dict) -> None:
         n_lu = cellules[3]
         for col, lu in zip(COLONNES, lus):
             calcule = f"{ligne[col]:.3f}"
-            dit(lu == calcule, f"{projet} {col}: README {lu}, lock {calcule}")
-        dit(n_lu == str(ligne["n"]), f"{projet} queries: README {n_lu}, lock {ligne['n']}")
+            dit(lu == calcule, f"{projet} {col}: page {lu}, lock {calcule}")
+        dit(n_lu == str(ligne["n"]), f"{projet} queries: page {n_lu}, lock {ligne['n']}")
 
 
 def verifie_finetune() -> None:
@@ -382,7 +384,7 @@ def verifie_comptes() -> None:
     texte = README.read_text(encoding="utf-8")
     tests = sum(len(re.findall(r"^def test_", f.read_text(encoding="utf-8"), re.M))
                 for f in sorted(RACINE.rglob("evidence/**/test_*.py")))
-    dit(f"{tests} shipped unit tests" in texte, f"README states \"{tests} shipped unit tests\"")
+    dit(f"{tests} shipped unit tests" in texte, f"EVIDENCE.md states \"{tests} shipped unit tests\"")
 
     # Le docstring de ce fichier annoncait cinq etapes pour huit sections. Un compteur
     # ecrit a la main derive ; celui-ci se compte lui-meme.
@@ -425,17 +427,23 @@ def verifie_comptes() -> None:
         # Ils citent leur arbre d'origine, et les retoucher effacerait leur provenance.
         if ".git" in f.parts or "decisions" in f.parts or "code" in f.parts:
             continue
-        for m in re.finditer(r"`((?:evidence|tools)/[A-Za-z0-9_./-]+)`",
-                             f.read_text(encoding="utf-8", errors="replace")):
+        contenu = f.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"`((?:evidence|tools)/[A-Za-z0-9_./-]+)`", contenu):
             if not (RACINE / m.group(1)).exists():
                 morts.append(f"{f.relative_to(RACINE)} cites {m.group(1)}")
+        # Les liens et images Markdown locaux aussi : la page d'accueil montre des demos, et une
+        # image absente s'affiche comme un cadre vide sans que rien ne le signale.
+        if f.suffix == ".md":
+            for m in re.finditer(r"\]\(((?!https?:|mailto:|#)[^)\s#]+)\)", contenu):
+                if not (f.parent / m.group(1)).exists():
+                    morts.append(f"{f.relative_to(RACINE)} links {m.group(1)}")
     dit(not morts, "every internal path quoted in the docs exists"
         + (f"; dead: {morts[0]}" if morts else ""))
 
     # En dernier, parce qu'il se compte lui-meme : l'ecart etait code en dur et derivait
     # des qu'un controle s'ajoutait a cette section.
     attendu = f"{controles + 1} checks"
-    dit(attendu in texte, f"README states \"{attendu}\"")
+    dit(attendu in texte, f"EVIDENCE.md states \"{attendu}\"")
 
 
 HISTORIQUE = RACINE / "evidence" / "review-history.md"

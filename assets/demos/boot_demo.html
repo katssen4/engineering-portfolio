@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head>
+<!-- Source of every value below: the warm-up file written by tools/boot.sh at the opening of
+     session S388 (2026-09-22) and its log line "91s wall, lint=0 harness=43", in the private
+     working repository. G12 (token usage) and G15 (hook install) print to the terminal only and
+     are not shown. Tile order of completion is illustrative: the boot does not record it.
+     Recorded to assets/demos/boot.gif with headless Chromium. --><meta charset="utf-8"><title>Boot, decomposed</title>
+<style>
+  body{margin:0;background:#1c1d22;color:#e5e7eb;font:14px/1.4 "DejaVu Sans",sans-serif;width:1100px;height:680px;overflow:hidden}
+  .bar{height:30px;background:#26272e;display:flex;align-items:center;gap:8px;padding:0 14px}
+  .bar i{width:12px;height:12px;border-radius:50%;display:inline-block}
+  .bar b{color:#9ca3af;font:500 13px sans-serif;margin-left:12px}
+  main{padding:18px 24px}
+  h1{margin:0 0 4px;font-size:21px;color:#fff;font-weight:700}
+  .sub{color:#a5b4fc;font-size:13px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .t{background:#26272e;border:1px solid #33343c;border-radius:8px;padding:7px 10px;opacity:0;transform:translateY(6px);transition:all .35s}
+  .t.on{opacity:1;transform:none}
+  .t .g{font:600 11px "DejaVu Sans Mono",monospace;color:#c7d2fe}
+  .t .n{font-size:13px;color:#fff}
+  .t .r{font:12px "DejaVu Sans Mono",monospace;color:#9ca3af;min-height:16px}
+  .t.run .r::before{content:"running";color:#a5b4fc;animation:pulse .8s infinite alternate}
+  .t.ok{border-color:#2f5d45}.t.ok .r{color:#86efac}
+  .t.warn{border-color:#6b5a2a}.t.warn .r{color:#fcd34d}
+  @keyframes pulse{from{opacity:.35}to{opacity:1}}
+  .foot{margin-top:12px;display:flex;gap:18px;align-items:center;opacity:0;transition:opacity .5s}
+  .foot.on{opacity:1}
+  .pill{background:#26272e;border-radius:999px;padding:5px 12px;font:13px "DejaVu Sans Mono",monospace;color:#fff}
+  .llm{position:absolute;left:24px;right:24px;bottom:18px;background:#23243a;border:1px solid #4338ca;border-radius:10px;padding:12px 16px;opacity:0;transform:translateY(10px);transition:all .5s}
+  .llm.on{opacity:1;transform:none}
+  .llm h2{margin:0 0 6px;font-size:15px;color:#c7d2fe}
+  .llm p{margin:2px 0;font-size:13px;color:#e5e7eb}
+  .note{position:absolute;right:24px;top:44px;color:#6b7280;font-size:11px}
+</style></head>
+<body>
+<div class="bar"><i style="background:#ef4444"></i><i style="background:#eab308"></i><i style="background:#22c55e"></i><b>session boot, decomposed: real results from the S388 warm-up file</b></div>
+<div class="note">order of completion illustrative</div>
+<main>
+  <h1>Opening a work session</h1>
+  <div class="sub">Every check runs in parallel as a plain script. No model is called until they are done.</div>
+  <div class="grid" id="g"></div>
+  <div class="foot" id="f"><span class="pill">91 s wall clock</span><span class="pill">0 model tokens for the checks</span><span class="pill">4 signals raised, 0 blocking</span></div>
+</main>
+<div class="llm" id="l">
+  <h2>Then one model step</h2>
+  <p>Reads the boot context pack: 5,487 of 16,000 tokens, 55 of 55 pointers valid.</p>
+  <p>Writes the session anticipation: five work fronts, each with the files to open and the decision it needs from me.</p>
+</div>
+<script>
+const T=[
+ ["G1","Repository state","118 uncommitted, HEAD b6d35c6","ok"],
+ ["G2","Scratchpad","24 open items","ok"],
+ ["G3","Handover from last session","transfer S388 found","ok"],
+ ["G4","Knowledge counters","1,231 sourced claims","ok"],
+ ["G5","Knowledge lint","0 structural warnings","ok"],
+ ["G6","Memory index","5 entries","ok"],
+ ["G8","Harness hygiene","43 WARN, 0 ERROR, delta 0","warn"],
+ ["G9","Claude Code config","v2.1.280, 36 skills, 11 hooks","ok"],
+ ["G10","Conventions","82 active","ok"],
+ ["G11","Multi-terminal manifest","mono-terminal, n/a","ok"],
+ ["G13","Anthropic changelog watch","off cadence (every 5)","ok"],
+ ["G14","Recovery engine","0 orphans, 0 zombies","ok"],
+ ["G16","Boot context pack","55/55 pointers valid","ok"],
+ ["G17","Integrity manifests","harness drift 0","ok"],
+ ["G18","Post external-read audit","92 gaps vs baseline","warn"],
+ ["G19","Project state sheets","3 missing, 1 stale","warn"],
+ ["G20","Commit guard heartbeat","22.5% actions checked","warn"],
+ ["G2bis","Scratchpad purge","0 purged, after the wait","ok"]];
+const g=document.getElementById('g');
+T.forEach(([id,n])=>{const d=document.createElement('div');d.className='t run';d.innerHTML=`<div class="g">${id}</div><div class="n">${n}</div><div class="r"></div>`;g.appendChild(d);});
+const tiles=[...g.children];
+setTimeout(()=>tiles.forEach((t,i)=>setTimeout(()=>t.classList.add('on'),i*45)),600);
+const ordre=[0,2,1,5,3,9,10,4,11,13,15,7,12,14,6,16,8,17];
+ordre.forEach((k,i)=>setTimeout(()=>{const t=tiles[k];t.classList.remove('run');t.classList.add(T[k][3]);t.querySelector('.r').textContent=T[k][2];},2200+i*330));
+setTimeout(()=>document.getElementById('f').classList.add('on'),2200+ordre.length*330+400);
+setTimeout(()=>document.getElementById('l').classList.add('on'),2200+ordre.length*330+2000);
+</script>
+</body></html>
